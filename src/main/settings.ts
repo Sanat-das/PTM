@@ -6,15 +6,21 @@ class SettingsManager {
   private listeners = new Set<(s: AppSettings) => void>()
 
   get(): AppSettings {
-    const raw = this.store.get()
-    return {
+    const raw = this.store.get() as Partial<AppSettings> & { pauseWhenMinimized?: boolean }
+    // Migrate the retired "pause downloads on minimize" flag into the playback one.
+    const pausePlaybackOnMinimize =
+      raw.pausePlaybackOnMinimize ?? raw.pauseWhenMinimized ?? DEFAULT_SETTINGS.pausePlaybackOnMinimize
+    const merged = {
       ...DEFAULT_SETTINGS,
       ...raw,
+      pausePlaybackOnMinimize,
       proxy: { ...DEFAULT_SETTINGS.proxy, ...(raw.proxy ?? {}) },
       qbittorrent: { ...DEFAULT_SETTINGS.qbittorrent, ...(raw.qbittorrent ?? {}) },
       trackers: raw.trackers?.length ? raw.trackers : DEFAULT_SETTINGS.trackers,
       providers: raw.providers ?? {}
     }
+    delete (merged as Record<string, unknown>).pauseWhenMinimized
+    return merged
   }
 
   set(patch: Partial<AppSettings>): AppSettings {

@@ -72,13 +72,7 @@ function createWindow(): void {
     mainWindow = null
   })
 
-  // Optional: pause downloads while minimized, resume when restored.
-  mainWindow.on('minimize', () => {
-    if (settings.get().pauseWhenMinimized) void engineManager.setAllPaused(true)
-  })
-  mainWindow.on('restore', () => {
-    if (settings.get().pauseWhenMinimized) void engineManager.setAllPaused(false)
-  })
+
 }
 
 // Keep a single instance: two copies would fight over the torrent ports and

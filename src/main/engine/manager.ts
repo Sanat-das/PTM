@@ -12,8 +12,6 @@ class EngineManager {
 
   private active: TorrentEngine = this.builtin
   private listeners = new Set<(session: EngineSession) => void>()
-  /** Ids the minimize hook paused — restored on unminimize, not the user's own pauses. */
-  private autoPaused = new Set<string>()
 
   constructor() {
     this.builtin.onUpdate((session) => this.notify(session))
@@ -49,31 +47,6 @@ class EngineManager {
     return this.active === this.qbittorrent
       ? this.builtin.setPaused(sessionId, paused)
       : this.qbittorrent.setPaused(sessionId, paused)
-  }
-
-  /**
-   * Minimize/restore hook. Pauses only sessions that are not complete and
-   * not already paused by the user; resumes only the ones it paused itself —
-   * never torrents the user deliberately stopped, and never completed
-   * (seeding) torrents.
-   */
-  async setAllPaused(paused: boolean): Promise<void> {
-    if (paused) {
-      this.autoPaused.clear()
-      for (const engine of this.list) {
-        for (const session of engine.list()) {
-          if (session.paused || session.state === 'complete') continue
-          await engine.setPaused(session.id, true)
-          this.autoPaused.add(session.id)
-        }
-      }
-      return
-    }
-    const ids = [...this.autoPaused]
-    this.autoPaused.clear()
-    for (const id of ids) {
-      await this.setPaused(id, false)
-    }
   }
 
   /** The engine that owns a session, if any. */

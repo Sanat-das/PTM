@@ -16,7 +16,7 @@ test('adding the same magnet twice reuses the existing session', async (t) => {
   setUserDataDir(dir)
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
 
-  settings.set({ downloadDir: undefined, pauseWhenMinimized: false })
+  settings.set({ downloadDir: undefined, pausePlaybackOnMinimize: false })
 
   const engine = new BuiltinEngine()
   t.after(() => engine.destroy())
@@ -34,7 +34,7 @@ test('pause and resume flip the session state', async (t) => {
   setUserDataDir(dir)
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
 
-  settings.set({ downloadDir: undefined, pauseWhenMinimized: false })
+  settings.set({ downloadDir: undefined, pausePlaybackOnMinimize: false })
 
   const engine = new BuiltinEngine()
   t.after(() => engine.destroy())

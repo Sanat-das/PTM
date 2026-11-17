@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { X, Loader2, AlertTriangle, Octagon } from 'lucide-react'
 import { api } from '../lib/api.ts'
 
@@ -124,6 +125,15 @@ interface PlayerProps {
 export function Player({ sessionId, fileIndex, resumePositionSec, title, theme, imdbId, onClose, onStop }: PlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  // Whether the visibility hook paused the video (so restore can resume it),
+  // as opposed to the user pressing pause themselves.
+  const autoPausedRef = useRef(false)
+  const settingsQuery = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => api.settingsGet(),
+    staleTime: Infinity
+  })
+  const pausePlaybackOnMinimize = settingsQuery.data?.pausePlaybackOnMinimize ?? false
   const [url, setUrl] = useState<string | null>(null)
   const [mode, setMode] = useState<'direct' | 'hls'>('direct')
   const [error, setError] = useState<string | null>(null)
@@ -179,6 +189,27 @@ export function Player({ sessionId, fileIndex, resumePositionSec, title, theme, 
       cancelled = true
     }
   }, [sessionId, fileIndex])
+
+  // Pause the video when the window is minimized; resume on restore — but
+  // only playback the hook itself paused, never something the user paused.
+  useEffect(() => {
+    if (!pausePlaybackOnMinimize) return
+    const video = videoRef.current
+    if (!video) return
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        if (!video.paused) {
+          video.pause()
+          autoPausedRef.current = true
+        }
+      } else if (autoPausedRef.current) {
+        autoPausedRef.current = false
+        void video.play().catch(() => undefined)
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [pausePlaybackOnMinimize])
 
   useEffect(() => {
     let cancelled = false

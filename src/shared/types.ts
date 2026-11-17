@@ -213,7 +213,8 @@ export interface AppSettings {
   tmdbApiKey?: string
   downloadDir?: string
   autoplayReviews: boolean
-  pauseWhenMinimized: boolean
+  /** Pause the <video> element when the window is minimized; resume on restore. */
+  pausePlaybackOnMinimize: boolean
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -236,7 +237,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     'udp://open.stealth.si:80/announce'
   ],
   autoplayReviews: true,
-  pauseWhenMinimized: false
+  pausePlaybackOnMinimize: false
 }
 
 export interface DiagnosticResult {

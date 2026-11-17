@@ -61,6 +61,9 @@ quality filters, and it is also what the YouTube query uses, so a clean title ma
 
 - The engine exposes a file as byte ranges. A local server on `127.0.0.1` (random port, random
   path token) serves them with proper `Range` support.
+- **Pause video playback while the app is minimized** (Settings → Behaviour) pauses the
+  `<video>` when the window is minimized and resumes it on restore. Playback you paused
+  yourself stays paused.
 - MP4/WebM play directly in the video element.
 - MKV/AVI and other containers are piped through ffmpeg into an HLS playlist that `hls.js` plays.
   This is why ffmpeg ships with the app.
@@ -82,9 +85,6 @@ quality filters, and it is also what the YouTube query uses, so a clean title ma
   amber whenever at least one torrent is paused.
 - The session card in the detail panel shows peers, speed, progress and state (`fetching-metadata`, `downloading`, `paused`, `complete`, `error`).
 - Pause/resume and Stop are per torrent; Stop destroys the torrent but keeps downloaded files on disk.
-- **Pause downloads while the app is minimized** (Settings → Behaviour) pauses in-progress
-  torrents on minimize (completed/seeding torrents are unaffected) and resumes exactly the
-  ones it paused on restore — your own pauses are never touched.
 - Torrents are de-duplicated by info hash: re-adding the same magnet reuses the existing session (and resumes it if paused) instead of erroring.
 ### Proxy
 

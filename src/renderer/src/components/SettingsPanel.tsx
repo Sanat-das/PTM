@@ -268,14 +268,15 @@ export function SettingsPanel() {
           <label className="flex cursor-pointer items-center gap-2 text-xs text-mist-200">
             <input
               type="checkbox"
-              checked={draft.pauseWhenMinimized}
-              onChange={(event) => patch({ pauseWhenMinimized: event.target.checked })}
+              checked={draft.pausePlaybackOnMinimize}
+              onChange={(event) => patch({ pausePlaybackOnMinimize: event.target.checked })}
               className="accent-[var(--color-accent-500)]"
             />
-            Pause downloads while the app is minimized
+            Pause video playback while the app is minimized
           </label>
           <p className="mt-1 text-[11px] text-mist-400">
-            Halts all torrents when the window is minimized and resumes them on restore.
+            Pauses the player when you minimize the window and resumes when you come back. Playback
+            you paused yourself stays paused.
           </p>
         </Section>
       </div>
