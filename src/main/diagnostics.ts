@@ -60,10 +60,20 @@ export async function runDiagnostics(): Promise<DiagnosticResult[]> {
   )
   results.push(...providerChecks)
 
-  // 2. Trackers (TCP reachability)
+  // 2. Trackers (TCP reachability; UDP trackers can't be probed this way)
   const trackers = settings.get().trackers.slice(0, 6)
   const trackerChecks = await Promise.all(
     trackers.map(async (tracker) => {
+      // UDP trackers speak no TCP — probing them over TCP proves nothing.
+      if (/^udp:/i.test(tracker.trim())) {
+        return {
+          name: `Tracker: ${tracker}`,
+          ok: true,
+          detail: 'skipped — UDP tracker (no TCP probe possible)',
+          durationMs: 0,
+          category: 'tracker' as const
+        }
+      }
       const target = parseTracker(tracker)
       if (!target) {
         return {
@@ -131,9 +141,9 @@ export async function runDiagnostics(): Promise<DiagnosticResult[]> {
     results.push({
       name: 'Proxy',
       ok: true,
-      detail: `${proxy.type}://${proxy.host}:${proxy.port} (torrent traffic tunnelled over TCP)`,
+      detail: `${proxy.type}://${proxy.host}:${proxy.port} (torrent TCP traffic tunnelled; UDP trackers/DHT not supported)`,
       durationMs: 0,
-      category: 'metadata'
+      category: 'proxy' as const
     })
   }
 

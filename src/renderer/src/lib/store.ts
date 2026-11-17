@@ -18,7 +18,14 @@ interface UiState {
   filters: SearchFilters
   selected: TorrentResult | null
   panel: Panel
-  player: { sessionId: string; fileIndex: number; resumePositionSec?: number; title?: string } | null
+  player: {
+    sessionId: string
+    fileIndex: number
+    resumePositionSec?: number
+    title?: string
+    theme?: Theme
+    imdbId?: string
+  } | null
   setQuery: (query: string) => void
   submit: () => void
   setFilters: (patch: Partial<SearchFilters>) => void
@@ -32,7 +39,7 @@ interface UiState {
   openPlayer: (
     sessionId: string,
     fileIndex: number,
-    opts?: { resumePositionSec?: number; title?: string }
+    opts?: { resumePositionSec?: number; title?: string; theme?: Theme; imdbId?: string }
   ) => void
   closePlayer: () => void
 }
@@ -68,7 +75,16 @@ export const useUiStore = create<UiState>((set) => ({
   select: (selected) => set({ selected }),
   setPanel: (panel) => set({ panel }),
   openPlayer: (sessionId, fileIndex, opts) =>
-    set({ player: { sessionId, fileIndex, resumePositionSec: opts?.resumePositionSec, title: opts?.title } }),
+    set({
+      player: {
+        sessionId,
+        fileIndex,
+        resumePositionSec: opts?.resumePositionSec,
+        title: opts?.title,
+        theme: opts?.theme,
+        imdbId: opts?.imdbId
+      }
+    }),
   closePlayer: () => set({ player: null })
 }))
 

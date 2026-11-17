@@ -10,11 +10,13 @@ export function DiagnosticsPanel() {
   const diagnostics = useQuery({
     queryKey: ['diagnostics'],
     queryFn: () => api.diagnostics(),
-    staleTime: 0
+    // Diagnostics probe the whole network — don't re-fire every time the
+    // panel is opened; the Re-run button exists for that.
+    staleTime: 60_000
   })
 
   return (
-    <Overlay onClose={() => setPanel('none')}>
+    <Overlay onClose={() => setPanel('none')} label="Network diagnostics">
       <header className="flex items-center border-b border-ink-700 px-5 py-3">
         <h2 className="text-sm font-semibold text-mist-100">Network diagnostics</h2>
         <button
@@ -30,6 +32,18 @@ export function DiagnosticsPanel() {
           <div className="flex items-center gap-2 py-6 text-sm text-mist-400">
             <Loader2 size={16} className="spin" />
             Testing indexes, trackers and services…
+          </div>
+        )}
+
+        {diagnostics.isError && (
+          <div className="rounded-lg border border-bad-500/40 bg-bad-500/10 px-3 py-2 text-xs text-bad-500">
+            Diagnostics failed: {(diagnostics.error as Error).message}
+            <button
+              onClick={() => void diagnostics.refetch()}
+              className="ml-2 underline hover:text-mist-100"
+            >
+              Retry
+            </button>
           </div>
         )}
 

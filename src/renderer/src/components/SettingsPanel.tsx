@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { toast } from 'sonner'
+import { useQueryClient } from '@tanstack/react-query'
 import { DEFAULT_SETTINGS, type AppSettings, type ProxyType } from '../../../shared/types.ts'
 import { api } from '../lib/api.ts'
 import { useUiStore } from '../lib/store.ts'
@@ -15,19 +16,50 @@ const PROVIDER_NAMES: Record<string, string> = {
 
 export function SettingsPanel() {
   const setPanel = useUiStore((state) => state.setPanel)
+  const queryClient = useQueryClient()
   const [draft, setDraft] = useState<AppSettings | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
   const [defaultDownloads, setDefaultDownloads] = useState('')
+  // Raw textarea text for trackers — kept separate so Enter produces a real
+  // newline instead of being stripped by the parse-then-join round trip.
+  const [trackersText, setTrackersText] = useState('')
 
-  useEffect(() => {
-    void api.settingsGet().then(setDraft)
-    void api.defaultDownloads().then(setDefaultDownloads)
-  }, [])
+  const load = () => {
+    setLoadError(null)
+    api
+      .settingsGet()
+      .then((loaded) => {
+        setDraft(loaded)
+        setTrackersText(loaded.trackers.join('\n'))
+      })
+      .catch((error: Error) => setLoadError(error.message))
+    void api.defaultDownloads().then(setDefaultDownloads).catch(() => undefined)
+  }
+
+  useEffect(load, [])
 
   const defaultDownloadsLabel = defaultDownloads || 'System Downloads folder'
 
+  if (loadError) {
+    return (
+      <Overlay onClose={() => setPanel('none')} label="Settings">
+        <div className="p-6 text-sm">
+          <p className="text-mist-100">Could not load settings: {loadError}</p>
+          <button
+            onClick={load}
+            className="mt-3 rounded-lg bg-accent-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-500"
+          >
+            Retry
+          </button>
+        </div>
+      </Overlay>
+    )
+  }
+
   if (!draft) {
     return (
-      <Overlay onClose={() => setPanel('none')}>
+      <Overlay onClose={() => setPanel('none')} label="Settings">
         <div className="p-6 text-sm text-mist-400">Loading settings…</div>
       </Overlay>
     )
@@ -36,17 +68,32 @@ export function SettingsPanel() {
   const patch = (changes: Partial<AppSettings>) => setDraft({ ...draft, ...changes })
 
   const save = async () => {
-    const saved = await api.settingsSet(draft)
-    setDraft(saved)
-    toast.success('Settings saved')
+    setSaving(true)
+    try {
+      const trackers = trackersText
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+      const saved = await api.settingsSet({ ...draft, trackers })
+      setDraft(saved)
+      setTrackersText(saved.trackers.join('\n'))
+      // The header engine toggle and the search pipeline read the same cache.
+      await queryClient.invalidateQueries({ queryKey: ['settings'] })
+      toast.success('Settings saved')
+    } catch (error) {
+      toast.error(`Could not save settings: ${(error as Error).message}`)
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
-    <Overlay onClose={() => setPanel('none')}>
+    <Overlay onClose={() => setPanel('none')} label="Settings">
       <header className="flex items-center border-b border-ink-700 px-5 py-3">
         <h2 className="text-sm font-semibold text-mist-100">Settings</h2>
         <button
           onClick={() => setPanel('none')}
+          aria-label="Close settings"
           className="ml-auto rounded p-1 text-mist-400 hover:bg-ink-700 hover:text-mist-100"
         >
           <X size={16} />
@@ -131,8 +178,8 @@ export function SettingsPanel() {
         <Section title="Trackers">
           <p className="mb-2 text-xs text-mist-400">One per line. Used for magnet links.</p>
           <textarea
-            value={draft.trackers.join('\n')}
-            onChange={(event) => patch({ trackers: event.target.value.split('\n').filter(Boolean) })}
+            value={trackersText}
+            onChange={(event) => setTrackersText(event.target.value)}
             rows={7}
             className="w-full rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 font-mono text-[11px] text-mist-200"
           />
@@ -235,16 +282,20 @@ export function SettingsPanel() {
 
       <footer className="flex items-center gap-2 border-t border-ink-700 px-5 py-3">
         <button
-          onClick={() => setDraft({ ...DEFAULT_SETTINGS })}
+          onClick={() => {
+            setDraft({ ...DEFAULT_SETTINGS })
+            setTrackersText(DEFAULT_SETTINGS.trackers.join('\n'))
+          }}
           className="rounded-lg border border-ink-600 bg-ink-800 px-3 py-1.5 text-xs text-mist-200 hover:text-mist-100"
         >
           Reset to defaults
         </button>
         <button
           onClick={() => void save()}
-          className="ml-auto rounded-lg bg-accent-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-accent-500"
+          disabled={saving}
+          className="ml-auto rounded-lg bg-accent-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-accent-500 disabled:opacity-60"
         >
-          Save
+          {saving ? 'Saving…' : 'Save'}
         </button>
       </footer>
     </Overlay>
@@ -263,19 +314,43 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 export function Overlay({
   title,
   onClose,
-  children
+  children,
+  label
 }: {
   title?: string
   onClose: () => void
   children: React.ReactNode
+  /** Accessible name for the dialog; falls back to `title`. */
+  label?: string
 }) {
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  // Escape closes the overlay; the panel takes focus on open so keyboard
+  // users land inside it.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation()
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    panelRef.current?.focus()
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [onClose])
+
   return (
     <div
       className="fixed inset-0 z-40 flex items-start justify-center bg-black/60 p-8 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="flex max-h-full w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-ink-600 bg-ink-850 shadow-2xl"
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={label ?? title ?? 'Dialog'}
+        tabIndex={-1}
+        className="flex max-h-full w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-ink-600 bg-ink-850 shadow-2xl outline-none"
         onClick={(event) => event.stopPropagation()}
       >
         {children}

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Activity, Library, Loader2, Pause, Search, Settings as SettingsIcon } from 'lucide-react'
+import { Activity, Library, Pause, Search, Settings as SettingsIcon } from 'lucide-react'
 import { formatBytes } from '../../../shared/filters.ts'
 import type { DownloadsSummary } from '../../../shared/types.ts'
 import { api } from '../lib/api.ts'
@@ -131,11 +131,13 @@ function DownloadsPill({ summary }: { summary: DownloadsSummary }) {
 
   return (
     <div
+      role="status"
+      aria-label={`${summary.activeCount} downloading, ${summary.pausedCount} paused`}
       title={`${summary.activeCount} downloading, ${summary.pausedCount} paused`}
       className={`flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-[11px] font-medium tabular-nums ${
-        summary.activeCount > 0
-          ? 'border-accent-600/40 bg-accent-600/10 text-accent-400'
-          : 'border-warn-500/40 bg-warn-500/10 text-warn-500'
+        hasPaused
+          ? 'border-warn-500/40 bg-warn-500/10 text-warn-500'
+          : 'border-accent-600/40 bg-accent-600/10 text-accent-400'
       }`}
     >
       {summary.activeCount > 0 ? (
@@ -182,5 +184,3 @@ function IconButton({
     </button>
   )
 }
-
-export { Loader2 }

@@ -1,6 +1,6 @@
-import type { ProviderHealth, Theme } from '../../shared/types.ts'
+import type { Theme } from '../../shared/types.ts'
 import { httpJson, httpText } from '../net/http.ts'
-import { buildMagnet, emptyHealth, toResult, type ProviderSearchContext, type TorrentProvider } from './types.ts'
+import { emptyHealth, toResult, type ProviderSearchContext, type TorrentProvider } from './types.ts'
 
 interface ApibayRow {
   id: string
@@ -105,5 +105,3 @@ function themeToCategory(theme?: Theme): string | null {
   }
 }
 
-export const _magnet = buildMagnet
-export type { ProviderHealth }

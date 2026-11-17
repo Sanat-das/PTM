@@ -128,7 +128,16 @@ function ResultRow({
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      aria-pressed={active}
       onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onSelect()
+        }
+      }}
       className={`group flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors ${
         active ? 'bg-ink-800' : 'hover:bg-ink-850'
       }`}
@@ -139,10 +148,11 @@ function ResultRow({
           onPlay()
         }}
         title="Play now"
+        aria-label={pending ? `Starting ${result.name}` : `Play ${result.name}`}
         className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-colors ${
           pending
             ? 'border-accent-500 bg-accent-600/30 text-accent-400'
-            : 'border-ink-600 bg-ink-800 text-mist-400 opacity-0 group-hover:opacity-100 hover:border-accent-500 hover:text-accent-400'
+            : 'border-ink-600 bg-ink-800 text-mist-400 opacity-0 transition-opacity focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100 hover:border-accent-500 hover:text-accent-400'
         }`}
       >
         <Play size={14} className={pending ? 'spin' : ''} fill="currentColor" />

@@ -33,7 +33,9 @@ export async function searchAll(
   options: { trackers: string[]; proxy: ProviderSearchContext['proxy'] }
 ): Promise<AggregatedSearch> {
   const started = Date.now()
-  const active = providers.filter(isProviderEnabled)
+  // EZTV only works with an IMDb id, so it is held out of the fan-out and
+  // queried in a second pass against TV results that carry one.
+  const active = providers.filter(isProviderEnabled).filter((provider) => provider !== eztvProvider)
   const theme = filters.themes.length === 1 ? filters.themes[0] : undefined
 
   const settled = await Promise.allSettled(
@@ -79,31 +81,59 @@ export async function searchAll(
     }
   })
 
-  // EZTV only works with an IMDb id, so it runs as a second pass using ids
-  // discovered by the primary providers.
-  const imdbIds = [...new Set(collected.map((r) => r.imdbId).filter((id): id is string => !!id))]
-  if (imdbIds.length && isProviderEnabled(eztvProvider)) {
-    const eztvResults = await Promise.allSettled(
-      imdbIds.slice(0, 10).map(async (imdbId) =>
-        eztvProvider.search({
-          query,
-          imdbId,
-          proxy: options.proxy,
-          trackers: options.trackers
-        })
+  // EZTV second pass: query by the IMDb ids found in TV-flavoured primary
+  // results (movies are not in EZTV, and YTS is movie-only).
+  if (isProviderEnabled(eztvProvider)) {
+    const imdbIds = [
+      ...new Set(
+        collected
+          .filter((r) => r.imdbId && (r.release.season !== undefined || r.theme === 'tv'))
+          .map((r) => r.imdbId as string)
       )
-    )
-    let count = 0
-    for (const entry of eztvResults) {
-      if (entry.status === 'fulfilled') {
-        collected.push(...entry.value)
-        count += entry.value.length
+    ]
+    if (imdbIds.length) {
+      const eztvResults = await Promise.allSettled(
+        imdbIds.slice(0, 10).map(async (imdbId) =>
+          eztvProvider.search({
+            query,
+            imdbId,
+            proxy: options.proxy,
+            trackers: options.trackers
+          })
+        )
+      )
+      let count = 0
+      let succeeded = 0
+      let lastError: string | undefined
+      for (const entry of eztvResults) {
+        if (entry.status === 'fulfilled') {
+          collected.push(...entry.value)
+          count += entry.value.length
+          succeeded += 1
+        } else {
+          lastError = (entry.reason as Error)?.message ?? String(entry.reason)
+        }
       }
-    }
-    const existing = health.find((h) => h.id === eztvProvider.id)
-    if (existing) {
-      existing.reachable = true
-      existing.resultCount = count
+      health.push({
+        id: eztvProvider.id,
+        name: eztvProvider.name,
+        enabled: true,
+        reachable: succeeded > 0,
+        error: succeeded > 0 ? undefined : (lastError ?? 'All lookups failed'),
+        resultCount: count,
+        supportsCategories: eztvProvider.supportsCategories,
+        lastChecked: Date.now()
+      })
+    } else {
+      // Nothing to query by; report an honest reachability probe instead of a
+      // fabricated "healthy" row.
+      const probe = await eztvProvider.health({ proxy: options.proxy })
+      health.push({
+        id: eztvProvider.id,
+        name: eztvProvider.name,
+        enabled: true,
+        ...probe
+      } as ProviderHealth)
     }
   }
 

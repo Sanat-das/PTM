@@ -1,4 +1,3 @@
-import type { Theme } from '../../shared/types.ts'
 import { httpJson } from '../net/http.ts'
 import { emptyHealth, toResult, type ProviderSearchContext, type TorrentProvider } from './types.ts'
 import { parseSizeToBytes } from './util.ts'
@@ -21,12 +20,20 @@ interface YtsMovie {
   year: number
   imdb_code: string
   genres: string[]
+  date_uploaded?: string
   torrents: YtsTorrent[]
 }
 
 interface YtsResponse {
   status: string
   data?: { movies?: YtsMovie[] }
+}
+
+/** YTS date_uploaded looks like "2014-09-16 12:00:00" (UTC, space-separated). */
+function parseYtsDate(value: string | undefined): number | undefined {
+  if (!value) return undefined
+  const parsed = Date.parse(`${value.trim().replace(' ', 'T')}Z`)
+  return Number.isNaN(parsed) ? undefined : Math.floor(parsed / 1000)
 }
 
 /** yts.mx rotates mirrors; try each until one answers. */
@@ -73,7 +80,7 @@ export const ytsProvider: TorrentProvider = {
             leechers: torrent.peers ?? 0,
             category: '201',
             imdbId: movie.imdb_code,
-            addedAt: undefined,
+            addedAt: parseYtsDate(movie.date_uploaded),
             url: torrent.url,
             trackers: ctx.trackers
           })
@@ -85,25 +92,30 @@ export const ytsProvider: TorrentProvider = {
 
   async health(ctx) {
     const started = Date.now()
-    try {
-      await httpJson(`${MIRRORS[0]}/api/v2/list_movies.json?query=ptm&limit=1`, {
-        proxy: ctx.proxy,
-        timeout: 12000
-      })
-      return {
-        reachable: true,
-        latencyMs: Date.now() - started,
-        supportsCategories: false,
-        lastChecked: Date.now()
+    // Mirror rotation matches search() — a dead first mirror says nothing
+    // about the others.
+    let lastError: Error | null = null
+    for (const mirror of MIRRORS) {
+      try {
+        await httpJson(`${mirror}/api/v2/list_movies.json?query=ptm&limit=1`, {
+          proxy: ctx.proxy,
+          timeout: 12000
+        })
+        return {
+          reachable: true,
+          latencyMs: Date.now() - started,
+          supportsCategories: false,
+          lastChecked: Date.now()
+        }
+      } catch (error) {
+        lastError = error as Error
       }
-    } catch (error) {
-      return {
-        ...emptyHealth(ytsProvider),
-        latencyMs: Date.now() - started,
-        error: (error as Error).message
-      }
+    }
+    return {
+      ...emptyHealth(ytsProvider),
+      latencyMs: Date.now() - started,
+      error: lastError?.message ?? 'No YTS mirror responded'
     }
   }
 }
 
-export const _theme: Theme = 'movies'

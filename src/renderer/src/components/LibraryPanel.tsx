@@ -21,7 +21,7 @@ export function LibraryPanel({ onResume }: LibraryPanelProps) {
   })
 
   return (
-    <Overlay onClose={() => setPanel('none')}>
+    <Overlay onClose={() => setPanel('none')} label="Continue watching">
       <header className="flex items-center border-b border-ink-700 px-5 py-3">
         <h2 className="text-sm font-semibold text-mist-100">Continue watching</h2>
         <button
@@ -37,6 +37,15 @@ export function LibraryPanel({ onResume }: LibraryPanelProps) {
           <div className="flex items-center gap-2 py-6 text-sm text-mist-400">
             <Loader2 size={16} className="spin" />
             Loading library…
+          </div>
+        )}
+
+        {library.isError && (
+          <div className="rounded-lg border border-bad-500/40 bg-bad-500/10 px-3 py-2 text-xs text-bad-500">
+            Could not load the library: {(library.error as Error).message}
+            <button onClick={() => void library.refetch()} className="ml-2 underline hover:text-mist-100">
+              Retry
+            </button>
           </div>
         )}
 
@@ -90,9 +99,16 @@ export function LibraryPanel({ onResume }: LibraryPanelProps) {
 
                 <button
                   title="Remove from library"
+                  aria-label={`Remove ${entry.title} from library`}
                   onClick={() => {
-                    void api.libraryRemove(entry.infoHash)
-                    void library.refetch()
+                    void (async () => {
+                      try {
+                        await api.libraryRemove(entry.infoHash)
+                      } catch {
+                        // Row stays in place; the user can retry.
+                      }
+                      await library.refetch()
+                    })()
                   }}
                   className="rounded p-1.5 text-mist-400 transition-colors hover:bg-ink-700 hover:text-bad-500"
                 >

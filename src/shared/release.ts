@@ -93,6 +93,8 @@ function extractGroup(name: string): { group?: string; rest: string } {
       releaseLike &&
       !/^\d+(\.\d+)?\s*(gb|mb)$/i.test(group) &&
       !/^(?:19|20)\d{2}$/.test(group) &&
+      // "WEB-DL" at the very end of a name: the -DL is part of the source, not a group.
+      !/^(web|dl|rip|hd|sd|ma|atmos|x26[45]|h26[45]|hevc|avc)$/i.test(group) &&
       !isTechnicalToken(group)
     ) {
       return { group, rest }
@@ -144,13 +146,14 @@ function detectAnime(name: string): boolean {
 export function parseRelease(rawName: string): ReleaseInfo {
   let name = rawName.replace(/\.(mkv|mp4|avi|mov|ts|m4v|wmv|flv|webm|m2ts)$/i, '').trim()
 
-  // Pre-pass while dots still separate tokens: "H.264" and "DDP5.1" would
-  // otherwise become "H 264" and "DDP5 1" and leak into the title.
+  // Pre-pass while tokens still have their original separators: "H.264" and
+  // "H 264", "DDP5.1" and "DDP 5,1" all appear in the wild.
   name = name.replace(/\b\d+(?:[.,]\d+)?\s?(?:GB|MB|TB|GiB|MiB|TiB)\b/gi, ' ')
-  name = name.replace(/\b[dh]\.?26([45])\b/gi, 'x26$1')
-  name = name.replace(/\bddp?\+?\d(?:[.,]\d)?\b/gi, ' ')
-  name = name.replace(/\b[57]\.1\b/g, ' ')
+  name = name.replace(/\b[dh][\s.]?26([45])\b/gi, 'x26$1')
+  name = name.replace(/\bddp?\+?\d(?:[.,]\s?\d)?\b/gi, ' ')
+  // Scene season packs carry a stray "HEVC 1" / "x265 1" version token.
   name = name.replace(/\b(?:hevc|x26[45])\s*1\b/gi, ' ')
+  name = name.replace(/\b[57](?:[.\s]\s?)1\b/g, ' ')
   name = name.replace(/\b(?:10|8)\s?bit\b/gi, ' ')
 
   name = name.replace(/[._]/g, ' ').replace(/\s+/g, ' ').trim()
@@ -206,8 +209,11 @@ export function parseRelease(rawName: string): ReleaseInfo {
     if (withoutYear) working = withoutYear
   }
 
-  // Leftovers like "1" from a stray tag.
-  working = working.replace(/\s+\d{1,2}$/, '')
+  // Leftovers like "1" from a stray tag. Only meaningful for TV names —
+  // stripping it from movies eats real titles ("Apollo 13", "Race 2").
+  if (season !== undefined || episode !== undefined) {
+    working = working.replace(/\s+\d{1,2}$/, '')
+  }
 
   const title = working.length > 0 ? working : rawName
 

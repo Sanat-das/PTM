@@ -99,7 +99,17 @@ export const one337xProvider: TorrentProvider = {
         console.warn('[1337x] page', page, 'returned HTTP', body.status)
         break
       }
-      assertNotChallenge(body.body)
+      if (page > 1) {
+        try {
+          assertNotChallenge(body.body)
+        } catch (error) {
+          // Page 2 is best-effort: keep the page-1 results we already have.
+          console.warn('[1337x] page', page, 'challenged:', (error as Error).message)
+          break
+        }
+      } else {
+        assertNotChallenge(body.body)
+      }
       const parsed = parseRows(body.body)
       if (parsed.length === 0) break
       rows.push(...parsed)

@@ -135,7 +135,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle(
     IPC.metadata,
     async (_event, title: string, year?: number, imdbId?: string): Promise<MediaMetadata | null> => {
-      return fetchMetadata(title, year, imdbId)
+      const current = settings.get()
+      const proxy = current.proxy.enabled ? current.proxy : undefined
+      return fetchMetadata(title, year, imdbId, proxy)
     }
   )
 
@@ -150,6 +152,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         title: request.title,
         infoHash: request.infoHash
       })
+      // The downloads pill usually updates on engine ticks; push it now so a
+      // brand-new torrent shows up immediately.
+      getWindow()?.webContents.send('ptm:downloads-summary', downloadsSummary())
       return toTorrentStatus(session)
     }
   )
@@ -160,19 +165,20 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     try {
       if (/^magnet:/i.test(url)) return appendTrackers(url, current.trackers)
 
-      const response = await httpBuffer(url, { proxy, timeout: 20000 })
+      const response = await httpBuffer(url, { proxy, timeout: 20000, maxBytes: 16 * 1024 * 1024 })
       if (response.status < 200 || response.status >= 300) return null
 
-      // Some trackers' pages embed the magnet directly.
-      const text = response.body.toString('utf8').replace(/&amp;/g, '&')
-      const match = text.match(/magnet:\?xt=urn:btih:[A-Za-z0-9]+[^"'\s<]*/i)
-      if (match) return appendTrackers(match[0], current.trackers)
-
-      // Others serve the .torrent itself, which carries the info hash.
+      // A binary .torrent response carries the info hash; checking it first
+      // avoids utf8-decoding megabytes of binary.
       const infoHash = infoHashFromTorrent(response.body)
       if (infoHash) {
         return appendTrackers(`magnet:?xt=urn:btih:${infoHash}`, current.trackers)
       }
+
+      // Some tracker pages embed the magnet directly in HTML.
+      const text = response.body.toString('utf8').replace(/&amp;/g, '&')
+      const match = text.match(/magnet:\?xt=urn:btih:[A-Za-z0-9]+[^"'\s<]*/i)
+      if (match) return appendTrackers(match[0], current.trackers)
       return null
     } catch (error) {
       console.warn('[ipc] magnet resolve failed', (error as Error).message)
@@ -262,13 +268,38 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   ipcMain.handle(IPC.settingsGet, async (): Promise<AppSettings> => settings.get())
 
-  ipcMain.handle(IPC.settingsSet, async (_event, next: AppSettings): Promise<AppSettings> => {
-    const saved = settings.set(next)
-    engineManager.use(saved.engine)
-    const window = getWindow()
-    window?.webContents.send('ptm:settings-changed', saved)
-    return saved
-  })
+  ipcMain.handle(
+    IPC.settingsSet,
+    async (_event, next: Partial<AppSettings>): Promise<AppSettings> => {
+      if (!next || typeof next !== 'object') throw new Error('Invalid settings payload')
+      if (next.engine !== undefined && next.engine !== 'builtin' && next.engine !== 'qbittorrent') {
+        throw new Error(`Unknown engine: ${String(next.engine)}`)
+      }
+      if (next.trackers !== undefined && !Array.isArray(next.trackers)) {
+        throw new Error('trackers must be an array')
+      }
+      if (
+        next.proxy !== undefined &&
+        (typeof next.proxy !== 'object' || typeof next.proxy.enabled !== 'boolean')
+      ) {
+        throw new Error('Invalid proxy config')
+      }
+      if (
+        next.qbittorrent !== undefined &&
+        (typeof next.qbittorrent !== 'object' || typeof next.qbittorrent.url !== 'string')
+      ) {
+        throw new Error('Invalid qBittorrent config')
+      }
+      // Partial patches merge onto the current settings — callers can send
+      // just the keys they changed (e.g. { engine }) without clobbering
+      // concurrent edits with a stale snapshot.
+      const saved = settings.set(next)
+      engineManager.use(saved.engine)
+      const window = getWindow()
+      window?.webContents.send('ptm:settings-changed', saved)
+      return saved
+    }
+  )
 
   ipcMain.handle(IPC.pickDirectory, async (_event, defaultPath?: string): Promise<string | null> => {
     const options = {

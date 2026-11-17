@@ -23,11 +23,22 @@ function base32ToHex(input: string): string | null {
 
 /** Extracts the info hash from a magnet link as lowercase hex. */
 export function infoHashFromMagnet(magnet: string): string | null {
-  const match = magnet.match(/xt=urn:btih:([^&]+)/i)
-  if (!match) return null
-  const raw = decodeURIComponent(match[1]).trim().toLowerCase()
-  if (/^[0-9a-f]{40}$/.test(raw)) return raw
-  return base32ToHex(raw)
+  // Scan all xt=urn:btih: parameters — a magnet whose first btih is malformed
+  // may still carry a valid one later.
+  for (const match of magnet.matchAll(/xt=urn:btih:([^&\s]+)/gi)) {
+    let raw: string
+    try {
+      raw = decodeURIComponent(match[1]).trim().toLowerCase()
+    } catch {
+      continue // malformed percent-encoding — try the next xt parameter
+    }
+    // Base32 values may carry '=' padding; strip it before decoding.
+    const unpadded = raw.replace(/=+$/, '')
+    if (/^[0-9a-f]{40}$/.test(unpadded)) return unpadded
+    const decoded = base32ToHex(unpadded)
+    if (decoded) return decoded
+  }
+  return null
 }
 
 /** Adds any configured trackers the magnet does not carry yet. */

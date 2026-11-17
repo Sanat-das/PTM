@@ -92,7 +92,7 @@ export interface PtmApi {
   /** WebVTT URL for a subtitle file, or null when it cannot be served. */
   subtitleUrl(sessionId: string, fileIndex: number): Promise<string | null>
   settingsGet(): Promise<AppSettings>
-  settingsSet(settings: AppSettings): Promise<AppSettings>
+  settingsSet(settings: Partial<AppSettings>): Promise<AppSettings>
   pickDirectory(defaultPath?: string): Promise<string | null>
   defaultDownloads(): Promise<string>
   libraryList(): Promise<LibraryEntry[]>

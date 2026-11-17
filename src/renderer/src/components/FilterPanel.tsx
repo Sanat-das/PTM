@@ -33,6 +33,7 @@ export function FilterPanel({ results }: FilterPanelProps) {
         <button
           onClick={resetFilters}
           title="Reset filters"
+          aria-label="Reset filters"
           className="rounded p-1 text-mist-400 transition-colors hover:bg-ink-700 hover:text-mist-100"
         >
           <RotateCcw size={13} />
@@ -112,10 +113,14 @@ export function FilterPanel({ results }: FilterPanelProps) {
         </FilterGroup>
 
         <div>
-          <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-mist-400">
+          <label
+            htmlFor="filter-min-seeders"
+            className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-mist-400"
+          >
             Minimum seeders: {filters.minSeeders}
           </label>
           <input
+            id="filter-min-seeders"
             type="range"
             min={0}
             max={200}
@@ -127,10 +132,14 @@ export function FilterPanel({ results }: FilterPanelProps) {
         </div>
 
         <div>
-          <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-mist-400">
+          <label
+            htmlFor="filter-max-size"
+            className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-mist-400"
+          >
             Maximum size
           </label>
           <select
+            id="filter-max-size"
             value={filters.maxSizeGb}
             onChange={(event) => setFilters({ maxSizeGb: Number(event.target.value) })}
             className="w-full rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs text-mist-100 focus:outline-none"
@@ -145,10 +154,14 @@ export function FilterPanel({ results }: FilterPanelProps) {
         </div>
 
         <div>
-          <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-mist-400">
+          <label
+            htmlFor="filter-sort"
+            className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-mist-400"
+          >
             Sort by
           </label>
           <select
+            id="filter-sort"
             value={filters.sort}
             onChange={(event) => setFilters({ sort: event.target.value as never })}
             className="w-full rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs text-mist-100 focus:outline-none"
@@ -198,6 +211,7 @@ function Chip({
   return (
     <button
       onClick={onClick}
+      aria-pressed={active}
       className={`flex items-center gap-1 rounded-md border px-2 py-1 text-xs transition-colors ${
         active
           ? 'border-accent-500 bg-accent-600/20 text-accent-400'

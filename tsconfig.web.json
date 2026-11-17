@@ -17,11 +17,15 @@
     "isolatedModules": true,
     "allowImportingTsExtensions": true,
     "noEmit": true,
+    "types": [],
     "baseUrl": "."
   },
   "include": [
     "src/renderer/src/**/*.ts",
     "src/renderer/src/**/*.tsx",
     "src/shared/**/*.ts"
+  ],
+  "exclude": [
+    "src/**/*.test.ts"
   ]
 }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import type { TorrentStatus } from '../../../shared/ipc.ts'
-import type { LibraryEntry, TorrentResult } from '../../../shared/types.ts'
+import type { LibraryEntry, Theme, TorrentResult } from '../../../shared/types.ts'
 import { api } from '../lib/api.ts'
 import { useUiStore } from '../lib/store.ts'
 
@@ -14,7 +14,9 @@ export function useTorrentSession() {
 
   useEffect(() => {
     return api.onTorrentStatus((status) => {
-      if (activeSessionId.current && status.sessionId !== activeSessionId.current) return
+      // No tracked session → drop the event; otherwise one unrelated engine
+      // update would resurrect a ghost panel.
+      if (!activeSessionId.current || status.sessionId !== activeSessionId.current) return
       setSession(status)
     })
   }, [])
@@ -55,7 +57,7 @@ export function useTorrentSession() {
   }, [])
 
   const pickFile = useCallback(
-    (sessionId: string, fileIndex: number, opts?: { resumePositionSec?: number; title?: string }) => {
+    (sessionId: string, fileIndex: number, opts?: { resumePositionSec?: number; title?: string; theme?: Theme; imdbId?: string }) => {
       openPlayer(sessionId, fileIndex, opts)
     },
     [openPlayer]
@@ -114,7 +116,6 @@ export function useTorrentSession() {
         setPendingResume(null)
         setError(message)
         toast.error(`Could not resume: ${message}`)
-        throw err
       }
     },
     [reset]
@@ -137,7 +138,9 @@ export function useTorrentSession() {
 
     openPlayer(session.sessionId, index, {
       resumePositionSec: seekTo,
-      title: pendingResume.title
+      title: pendingResume.title,
+      theme: pendingResume.theme,
+      imdbId: pendingResume.imdbId
     })
     setPendingResume(null)
   }, [session, pendingResume, openPlayer])

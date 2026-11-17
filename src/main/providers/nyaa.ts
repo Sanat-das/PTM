@@ -25,14 +25,22 @@ const parser = new XMLParser({
 })
 
 const CATEGORY_THEME: Record<string, Theme> = {
+  '1_0': 'anime',
   '1_1': 'anime',
   '1_2': 'anime',
   '1_3': 'anime',
   '1_4': 'anime',
+  '2_0': 'music',
   '2_1': 'music',
   '2_2': 'music',
+  '3_0': 'books',
   '3_1': 'books',
-  '4_1': 'games'
+  '4_0': 'tv',
+  '4_1': 'tv',
+  '4_2': 'tv',
+  '6_0': 'apps',
+  '6_1': 'apps',
+  '6_2': 'apps'
 }
 
 export const nyaaProvider: TorrentProvider = {
@@ -64,7 +72,9 @@ export const nyaaProvider: TorrentProvider = {
       if (!name) continue
       const infoHash = item['nyaa:infoHash']?.trim()
       const categoryId = item['nyaa:categoryId'] ?? ''
-      const theme = CATEGORY_THEME[categoryId] ?? 'anime'
+      // Unknown categories default to 'other'; the name parser still gets its
+      // say via toResult's theme precedence.
+      const theme = CATEGORY_THEME[categoryId] ?? 'other'
       const guid = typeof item.guid === 'object' ? item.guid['#text'] : item.guid
 
       results.push(

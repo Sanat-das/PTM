@@ -25,7 +25,7 @@ Other scripts:
 | `npm run build` | Production build into `out/` |
 | `npm run typecheck` | Typecheck main/preload and renderer |
 | `npm test` | Unit tests (filters, release parser, stream server) |
-| `npm run dist` | Build and package a Windows installer into `release/` |
+| `npm run dist` | Verify the ffmpeg binary exists, build and package a Windows installer into `release/` |
 
 Note: npm may block post-install scripts. If Electron or ffmpeg is missing after `npm install`,
 run `node node_modules/electron/install.js` and `node node_modules/ffmpeg-static/install.js`.
@@ -70,20 +70,32 @@ quality filters, and it is also what the YouTube query uses, so a clean title ma
   a restart.
 - Two engine implementations sit behind one interface: the built-in WebTorrent engine, and an
   adapter that drives an installed qBittorrent through its Web API. Switch in the top bar.
+- The built-in engine streams a file while it downloads. The qBittorrent engine has no
+  streaming endpoint, so playback waits until the whole torrent is on disk (checked every
+  1.5 s, up to 30 minutes). Use qBittorrent for hard-to-reach swarms and speed; use the
+  built-in engine for instant playback.
 
 "
 ### Torrents in progress
 
-- The top bar shows a downloads pill (e.g. `↓ 1.2 MB/s · 1`) with the combined speed; it turns amber when torrents are paused.
+- The top bar shows a downloads pill (e.g. `↓ 1.2 MB/s · 1`) with the combined speed; it turns
+  amber whenever at least one torrent is paused.
 - The session card in the detail panel shows peers, speed, progress and state (`fetching-metadata`, `downloading`, `paused`, `complete`, `error`).
 - Pause/resume and Stop are per torrent; Stop destroys the torrent but keeps downloaded files on disk.
-- **Pause downloads while the app is minimized** (Settings → Behaviour) halts every torrent on minimize and resumes them on restore.
+- **Pause downloads while the app is minimized** (Settings → Behaviour) pauses in-progress
+  torrents on minimize (completed/seeding torrents are unaffected) and resumes exactly the
+  ones it paused on restore — your own pauses are never touched.
 - Torrents are de-duplicated by info hash: re-adding the same magnet reuses the existing session (and resumes it if paused) instead of erroring.
 ### Proxy
 
 HTTP and SOCKS5 proxies are supported for index lookups (via proxy agents) and for the torrent
-engine's TCP traffic (by tunnelling `net.connect`). UDP cannot be tunnelled, so DHT and UDP
-trackers will not work through it — use the qBittorrent engine if your setup depends on them.
+engine's TCP traffic (by tunnelling `net.connect`; this is process-wide, so outbound TCP from the
+main process — including tracker HTTP announces — follows the tunnel). UDP cannot be tunnelled,
+so DHT and UDP trackers will not work through it — use the qBittorrent engine if your setup
+depends on them. Note: HTTP/SOCKS proxy agents already dial the proxy directly; the `net.connect`
+tunnel exists for the torrent engine. A non-loopback proxy host is excluded from the tunnel to
+avoid double-proxying the agent connections; index lookups and the engine both go through the
+proxy either way.
 
 ## Network caveats
 
@@ -106,10 +118,14 @@ for that:
 
 ## Security notes
 
-The renderer runs with `contextIsolation`, no node integration, and a Content-Security-Policy that
-allows only YouTube frames and the local stream server. The stream server binds to loopback and
-requires a per-launch token. No content is bundled: the app only talks to public index APIs and
-standard BitTorrent and YouTube protocols.
+The renderer runs with `contextIsolation`, no node integration, and a Content-Security-Policy
+that allows only same-origin resources, the local stream server (`http://127.0.0.1:*`), HTTPS
+images and inline styles (Tailwind); `object-src`, `base-uri`, `form-action` and framing are all
+denied. (`sandbox` is off only because the ESM preload requires it; the preload touches nothing
+but `ipcRenderer` and `contextBridge`.) The stream server binds to loopback and requires a
+per-launch token. TMDB API keys are redacted from logged URLs. No content is bundled: the app
+only talks to public index APIs and standard BitTorrent and YouTube protocols. See `LICENSE`
+(MIT).
 
 ## Project layout
 

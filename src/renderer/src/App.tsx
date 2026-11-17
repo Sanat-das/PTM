@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { applyFilters } from '../../shared/filters.ts'
 import { DEFAULT_FILTERS, type TorrentResult } from '../../shared/types.ts'
 import { api } from './lib/api.ts'
@@ -22,6 +22,7 @@ export default function App() {
     useTorrentSession()
 
   const themeKey = filters.themes.join(',')
+  const queryClient = useQueryClient()
 
   const searchQuery = useQuery({
     queryKey: ['search', submitted, themeKey],
@@ -52,9 +53,9 @@ export default function App() {
       reset()
       try {
         await start(result)
-      } catch (err) {
+      } catch {
+        // useTorrentSession.start already toasted and recorded the error.
         setPendingResult(null)
-        throw err
       }
     },
     [start, reset]
@@ -76,7 +77,12 @@ export default function App() {
     const videos = session.files.filter((file) => file.isVideo)
     if (videos.length === 1) {
       autoOpenedRef.current = session.sessionId
-      void pickFile(session.sessionId, videos[0].index, { title: pendingResult.release.title })
+      setPendingResult(null)
+      void pickFile(session.sessionId, videos[0].index, {
+        title: pendingResult.release.title,
+        theme: pendingResult.theme,
+        imdbId: pendingResult.imdbId
+      })
     }
   }, [session, pendingResult, pickFile])
 
@@ -94,10 +100,16 @@ export default function App() {
         onOpenDiagnostics={() => useUiStore.getState().setPanel('diagnostics')}
         engine={settingsQuery.data?.engine ?? 'builtin'}
         onEngineChange={(engine) => {
-          const current = settingsQuery.data
-          if (!current) return
-          void api.settingsSet({ ...current, engine })
-          void settingsQuery.refetch()
+          // Send only the key being changed — spreading the cached snapshot
+          // would clobber concurrent settings edits with stale values.
+          void (async () => {
+            try {
+              await api.settingsSet({ engine })
+              await queryClient.invalidateQueries({ queryKey: ['settings'] })
+            } catch (error) {
+              console.error('[settings] engine switch failed', (error as Error).message)
+            }
+          })()
         }}
       />
 
@@ -145,6 +157,8 @@ export default function App() {
           fileIndex={player.fileIndex}
           resumePositionSec={player.resumePositionSec}
           title={player.title}
+          theme={player.theme}
+          imdbId={player.imdbId}
           onClose={closePlayer}
           onStop={() => {
             void handleStop().finally(() => closePlayer())

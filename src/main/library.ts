@@ -18,8 +18,8 @@ class LibraryManager {
       name: progress.title ?? existing?.name ?? 'Unknown',
       title: existing?.title ?? progress.title ?? 'Unknown',
       fileIndex: progress.fileIndex ?? existing?.fileIndex ?? 0,
-      theme: existing?.theme ?? 'other',
-      imdbId: existing?.imdbId,
+      theme: progress.theme ?? existing?.theme ?? 'other',
+      imdbId: progress.imdbId ?? existing?.imdbId,
       lastPlayedAt: Date.now(),
       positionSec: progress.positionSec,
       durationSec: progress.durationSec ?? existing?.durationSec

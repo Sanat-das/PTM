@@ -34,8 +34,13 @@ function mergeRow(a: TorrentResult, b: TorrentResult): TorrentResult {
   }
 }
 
-/** Episode tag such as "- 12 [1080p]" for anime-style names (SxxEyy is already parsed). */
-const EP_TAG_RE = /[-–—]\s*(\d{1,3})(?:v\d)?\s*(?=\[|\(|$)/
+/**
+ * Episode tag such as "- 12 [1080p]" for anime-style names (SxxEyy is already
+ * parsed). The lookahead accepts a bracket, the end of the string, or a
+ * resolution/source marker — scene names like "Show Name - 12 1080p WEB-DL"
+ * would otherwise merge distinct episodes.
+ */
+const EP_TAG_RE = /[-–—]\s*(\d{1,3})(?:v\d)?(?=\s*(?:\[|\(|$|\b\d{3,4}[pi]\b|\b(?:web|blu-?ray|x26[45]|h26[45]|hevc|hd-?tv)\b))/i
 
 function identityKey(result: TorrentResult): string | null {
   const release = result.release

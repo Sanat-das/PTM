@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import http from 'node:http'
+import os from 'node:os'
 import path from 'node:path'
 import { randomBytes } from 'node:crypto'
 import type { TorrentEngine } from '../engine/types.ts'
@@ -59,6 +60,7 @@ export class StreamServer {
 
   async start(): Promise<void> {
     if (this.server) return
+    this.sweepStaleTempDirs()
     await new Promise<void>((resolve, reject) => {
       const server = http.createServer((req, res) => {
         void this.handle(req, res).catch((error) => {
@@ -75,6 +77,30 @@ export class StreamServer {
         resolve()
       })
     })
+  }
+
+  /**
+   * HLS transcodes write segments to os.tmpdir(); a crashed run never cleans
+   * up. Delete ptm-hls-* directories older than 24h on startup.
+   */
+  private sweepStaleTempDirs(): void {
+    try {
+      const tmp = os.tmpdir()
+      const cutoff = Date.now() - 24 * 60 * 60 * 1000
+      for (const entry of fs.readdirSync(tmp, { withFileTypes: true })) {
+        if (!entry.isDirectory() || !entry.name.startsWith('ptm-hls-')) continue
+        const full = path.join(tmp, entry.name)
+        try {
+          if (fs.statSync(full).mtimeMs < cutoff) {
+            fs.rmSync(full, { recursive: true, force: true })
+          }
+        } catch {
+          // best effort — never block startup on a sweep
+        }
+      }
+    } catch {
+      // tmpdir unreadable — not fatal
+    }
   }
 
   stop(): void {

@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Clapperboard, Download, ExternalLink, Octagon, Pause, Play, Star, Users } from 'lucide-react'
 import { formatBytes, formatCount } from '../../../shared/filters.ts'
@@ -60,12 +61,7 @@ export function DetailPanel({
 
   return (
     <aside className="flex w-[380px] shrink-0 flex-col overflow-y-auto border-l border-ink-700 bg-ink-850">
-      {metadata?.poster && (
-        <div className="relative h-52 w-full shrink-0 overflow-hidden">
-          <img src={metadata.backdrop ?? metadata.poster} alt="" className="h-full w-full object-cover" />
-          <div className="absolute inset-0 bg-gradient-to-t from-ink-850 via-ink-850/40 to-transparent" />
-        </div>
-      )}
+      {metadata?.poster && <BannerImage src={metadata.backdrop ?? metadata.poster} />}
 
       <div className="flex flex-col gap-4 p-4">
         <div>
@@ -165,6 +161,23 @@ export function DetailPanel({
   )
 }
 
+/** Backdrop that disappears entirely when the TMDB image 404s. */
+function BannerImage({ src }: { src: string }) {
+  const [failed, setFailed] = useState(false)
+  if (failed) return null
+  return (
+    <div className="relative h-52 w-full shrink-0 overflow-hidden">
+      <img
+        src={src}
+        alt=""
+        className="h-full w-full object-cover"
+        onError={() => setFailed(true)}
+      />
+      <div className="absolute inset-0 bg-gradient-to-t from-ink-850 via-ink-850/40 to-transparent" />
+    </div>
+  )
+}
+
 function SessionPanel({
   session,
   onPickFile,
@@ -179,6 +192,15 @@ function SessionPanel({
   const videos = session.files.filter((file) => file.isVideo)
   const subtitles = session.files.filter((file) => file.isSubtitle)
   const percent = Math.round(session.progress * 100)
+  // First click arms ("Stop?"), second click within a few seconds fires. No
+  // native confirm dialogs.
+  const [confirmingStop, setConfirmingStop] = useState(false)
+
+  useEffect(() => {
+    if (!confirmingStop) return
+    const timer = setTimeout(() => setConfirmingStop(false), 4000)
+    return () => clearTimeout(timer)
+  }, [confirmingStop])
 
   const stateTone =
     session.state === 'paused'
@@ -232,16 +254,23 @@ function SessionPanel({
         </button>
         <button
           onClick={() => {
-            if (window.confirm('Stop this torrent? Downloaded files stay on disk.')) {
+            if (confirmingStop) {
+              setConfirmingStop(false)
               void onStopSession()
+            } else {
+              setConfirmingStop(true)
             }
           }}
-          title="Stop this torrent"
-          aria-label="Stop this torrent"
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-bad-500/40 bg-bad-500/10 px-2 py-1.5 text-xs text-bad-500 transition-colors hover:bg-bad-500/20"
+          title={confirmingStop ? 'Click again to stop' : 'Stop this torrent'}
+          aria-label={confirmingStop ? 'Confirm stop this torrent' : 'Stop this torrent'}
+          className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs transition-colors ${
+            confirmingStop
+              ? 'border-bad-500 bg-bad-500 text-white hover:bg-bad-500/80'
+              : 'border-bad-500/40 bg-bad-500/10 text-bad-500 hover:bg-bad-500/20'
+          }`}
         >
           <Octagon size={12} fill="currentColor" />
-          Stop
+          {confirmingStop ? 'Click again to stop' : 'Stop'}
         </button>
       </div>
 
@@ -315,16 +344,12 @@ function Trailers({
   return (
     <div className="flex flex-col gap-1.5">
       {videos.slice(0, 6).map((video) => (
-        <a
+        <button
           key={video.id}
-          href={video.url}
-          target="_blank"
-          rel="noreferrer"
-          onClick={(event) => {
-            event.preventDefault()
-            void api.openExternal(video.url)
-          }}
-          className="group flex gap-2 rounded-lg border border-ink-700 bg-ink-800 p-2 transition-colors hover:border-ink-500"
+          type="button"
+          onClick={() => void api.openExternal(video.url)}
+          aria-label={`Open trailer in browser: ${video.title}`}
+          className="group flex gap-2 rounded-lg border border-ink-700 bg-ink-800 p-2 text-left transition-colors hover:border-ink-500"
         >
           {video.thumbnail && (
             <img
@@ -357,7 +382,7 @@ function Trailers({
               <ExternalLink size={9} className="ml-auto shrink-0" />
             </div>
           </div>
-        </a>
+        </button>
       ))}
     </div>
   )

@@ -114,9 +114,22 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('before-quit', () => {
-  settings.flush()
-  library.flush()
-  void engineManager.destroy()
-  getStreamServer().stop()
+let quitting = false
+app.on('before-quit', (event) => {
+  // Flush stores and stop the engines before the process exits. Guarded
+  // against re-entry because we re-invoke app.quit() once cleanup is done.
+  if (quitting) return
+  quitting = true
+  event.preventDefault()
+  void (async () => {
+    settings.flush()
+    library.flush()
+    try {
+      await engineManager.destroy()
+    } catch (error) {
+      console.error('[app] engine shutdown failed', (error as Error).message)
+    }
+    getStreamServer().stop()
+    app.quit()
+  })()
 })

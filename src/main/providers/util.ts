@@ -26,9 +26,31 @@ export function parseSizeToBytes(input: string | number | undefined): number {
   return Math.round(value * (multipliers[unit] ?? 1))
 }
 
+const MONTHS: Record<string, number> = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11
+}
+
+/**
+ * 1337x renders dates like "Aug. 17th '26" / "Sep 1st '24", which Date.parse
+ * rejects. Parse them explicitly; everything else falls back to Date.parse.
+ */
+function parseOrdinalDate(input: string): number | undefined {
+  const match = input.trim().match(/^([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?\s*'(\d{2,4})$/)
+  if (!match) return undefined
+  const month = MONTHS[match[1].slice(0, 3).toLowerCase()]
+  if (month === undefined) return undefined
+  let year = Number(match[3])
+  if (year < 100) year += year <= 69 ? 2000 : 1900
+  const time = Date.UTC(year, month, Number(match[2]))
+  return Number.isNaN(time) ? undefined : Math.floor(time / 1000)
+}
+
 /** RSS pubDate -> unix seconds */
 export function parseRssDate(input: string | undefined): number | undefined {
   if (!input) return undefined
+  const ordinal = parseOrdinalDate(input)
+  if (ordinal !== undefined) return ordinal
   const parsed = Date.parse(input)
   return Number.isNaN(parsed) ? undefined : Math.floor(parsed / 1000)
 }

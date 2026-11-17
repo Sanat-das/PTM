@@ -97,6 +97,16 @@ function subtitleLabel(name: string): string {
   return 'Subtitles'
 }
 
+/** BCP-47-ish tag for the <track srcLang> attribute, from the same tokens. */
+function subtitleLang(name: string): string | undefined {
+  const tokens = name
+    .replace(/\.[a-z0-9]+$/i, '')
+    .split(/[._\-[\]()\s]+/)
+    .filter(Boolean)
+    .map((token) => token.toLowerCase())
+  return tokens.find((token) => LANGUAGE_LABELS[token])
+}
+
 interface PlayerProps {
   sessionId: string
   fileIndex: number
@@ -104,11 +114,14 @@ interface PlayerProps {
   resumePositionSec?: number
   /** Clean title stored in the library; falls back to the torrent name. */
   title?: string
+  /** Optional enrichment stored in the library entry. */
+  theme?: import('../../../shared/types.ts').Theme
+  imdbId?: string
   onClose: () => void
   onStop?: () => void
 }
 
-export function Player({ sessionId, fileIndex, resumePositionSec, title, onClose, onStop }: PlayerProps) {
+export function Player({ sessionId, fileIndex, resumePositionSec, title, theme, imdbId, onClose, onStop }: PlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [url, setUrl] = useState<string | null>(null)
@@ -116,7 +129,9 @@ export function Player({ sessionId, fileIndex, resumePositionSec, title, onClose
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState<string>('Preparing stream…')
   const [canForceTranscode, setCanForceTranscode] = useState(false)
-  const [subtitles, setSubtitles] = useState<Array<{ url: string; label: string }>>([])
+  const [subtitles, setSubtitles] = useState<
+    Array<{ url: string; label: string; lang?: string }>
+  >([])
 
   // External subtitle files travel with the torrent; expose the usable ones to
   // the video element so the native captions menu can switch them.
@@ -139,15 +154,20 @@ export function Player({ sessionId, fileIndex, resumePositionSec, title, onClose
             ? candidates
             : candidates.filter((file) => subtitleMatches(video.name, file.name))
 
-        const tracks = await Promise.all(
-          chosen.slice(0, 12).map(async (file) => {
-            const url = await api.subtitleUrl(sessionId, file.index)
-            return url ? { url, label: subtitleLabel(file.name) } : null
-          })
-        )
+        const tracks: Array<{ url: string; label: string; lang?: string } | null> =
+          await Promise.all(
+            chosen.slice(0, 12).map(async (file) => {
+              const url = await api.subtitleUrl(sessionId, file.index)
+              return url
+                ? { url, label: subtitleLabel(file.name), lang: subtitleLang(file.name) }
+                : null
+            })
+          )
         if (!cancelled) {
           setSubtitles(
-            tracks.filter((track): track is { url: string; label: string } => track !== null)
+            tracks.filter((track): track is { url: string; label: string; lang?: string } => {
+              return track !== null
+            })
           )
         }
       } catch (error) {
@@ -191,10 +211,11 @@ export function Player({ sessionId, fileIndex, resumePositionSec, title, onClose
     if (!video || !url) return
 
     let hls: import('hls.js').default | null = null
+    let cancelled = false
 
     if (mode === 'hls') {
       void import('hls.js').then(({ default: Hls }) => {
-        if (!videoRef.current) return
+        if (cancelled || !videoRef.current) return
         if (Hls.isSupported()) {
           hls = new Hls({
             enableWorker: true,
@@ -266,6 +287,7 @@ export function Player({ sessionId, fileIndex, resumePositionSec, title, onClose
     video.addEventListener('error', onError)
 
     return () => {
+      cancelled = true
       video.removeEventListener('loadedmetadata', onLoadedMetadata)
       video.removeEventListener('canplay', onCanPlay)
       video.removeEventListener('waiting', onWaiting)
@@ -282,19 +304,26 @@ export function Player({ sessionId, fileIndex, resumePositionSec, title, onClose
     let lastSaved = 0
     const save = () => {
       const current = video.currentTime
-      if (!current || Math.abs(current - lastSaved) < 1) return
+      if (!current || video.readyState === 0 || Math.abs(current - lastSaved) < 1) return
       lastSaved = current
-      void api.torrentStatus(sessionId).then((status) => {
-        if (!status?.infoHash) return
-        void api.librarySaveProgress({
-          infoHash: status.infoHash,
-          fileIndex,
-          positionSec: current,
-          durationSec: video.duration || undefined,
-          updatedAt: Date.now(),
-          title: title ?? status.name
+      api
+        .torrentStatus(sessionId)
+        .then((status) => {
+          if (!status?.infoHash) return
+          void api
+            .librarySaveProgress({
+              infoHash: status.infoHash,
+              fileIndex,
+              positionSec: current,
+              durationSec: video.duration || undefined,
+              updatedAt: Date.now(),
+              title: title ?? status.name,
+              theme,
+              imdbId
+            })
+            .catch((err) => console.warn('[player] progress save failed', err))
         })
-      })
+        .catch((err) => console.warn('[player] status fetch failed', err))
     }
 
     const interval = setInterval(save, 5000)
@@ -304,13 +333,19 @@ export function Player({ sessionId, fileIndex, resumePositionSec, title, onClose
       video.removeEventListener('timeupdate', save)
       save()
     }
-  }, [sessionId, fileIndex, url])
+  }, [sessionId, fileIndex, url, theme, imdbId, title])
 
   // Space toggles play/pause, Escape closes.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
-      if (event.code === 'Space' && videoRef.current) {
+      // Leave Space alone when a control is focused — it would both activate
+      // the control and toggle playback.
+      const target = event.target as HTMLElement | null
+      const interactive = target?.closest(
+        'button, input, select, textarea, a, [role="button"]'
+      )
+      if (event.code === 'Space' && videoRef.current && !interactive) {
         event.preventDefault()
         if (videoRef.current.paused) void videoRef.current.play()
         else videoRef.current.pause()
@@ -372,7 +407,14 @@ export function Player({ sessionId, fileIndex, resumePositionSec, title, onClose
           className="max-h-full max-w-full bg-black"
         >
           {subtitles.map((track) => (
-            <track key={track.url} kind="subtitles" src={track.url} label={track.label} />
+            <track
+              key={track.url}
+              kind="subtitles"
+              src={track.url}
+              label={track.label}
+              srcLang={track.lang}
+              {...({ crossOrigin: 'anonymous' } as Record<string, string>)}
+            />
           ))}
         </video>
 

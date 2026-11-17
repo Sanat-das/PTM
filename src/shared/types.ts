@@ -167,6 +167,9 @@ export interface PlaybackProgress {
   durationSec?: number
   updatedAt: number
   title?: string
+  /** Optional enrichment from the originating search result. */
+  theme?: Theme
+  imdbId?: string
 }
 
 export interface LibraryEntry {
@@ -242,7 +245,7 @@ export interface DiagnosticResult {
   ok: boolean
   detail: string
   durationMs: number
-  category: 'index' | 'tracker' | 'metadata' | 'youtube'
+  category: 'index' | 'tracker' | 'metadata' | 'youtube' | 'proxy'
 }
 
 export interface DownloadsSummary {

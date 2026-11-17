@@ -54,7 +54,7 @@ export const eztvProvider: TorrentProvider = {
         size: Number(torrent.size_bytes) || 0,
         seeders: Number(torrent.seeds) || 0,
         leechers: Number(torrent.peers) || 0,
-        category: '203',
+        category: '205',
         imdbId: torrent.imdb_id,
         url: torrent.torrent_url,
         trackers: ctx.trackers
