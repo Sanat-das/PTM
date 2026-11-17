@@ -5,6 +5,7 @@ release/
 release-fresh/
 release-v2/
 release-v3/
+release-v4/
 *.tsbuildinfo
 *.log
 .DS_Store
