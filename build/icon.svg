@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- Squircle background: near-black navy, subtly lighter at the top -->
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#151a28"/>
+      <stop offset="0.55" stop-color="#10141f"/>
+      <stop offset="1" stop-color="#0a0c12"/>
+    </linearGradient>
+    <!-- Inner top-light for a soft 3D edge -->
+    <linearGradient id="edge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.14"/>
+      <stop offset="0.18" stop-color="#ffffff" stop-opacity="0.03"/>
+      <stop offset="0.35" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- Glyph gradient -->
+    <linearGradient id="glyph" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7ba3ff"/>
+      <stop offset="0.5" stop-color="#5b8cff"/>
+      <stop offset="1" stop-color="#3f6fe6"/>
+    </linearGradient>
+
+    <!-- Soft glow behind the glyph -->
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="10" stdDeviation="34" flood-color="#3f6fe6" flood-opacity="0.55"/>
+    </filter>
+  </defs>
+
+  <!-- Squircle -->
+  <rect x="16" y="16" width="992" height="992" rx="228" fill="url(#bg)"/>
+  <rect x="16" y="16" width="992" height="992" rx="228" fill="url(#edge)"/>
+  <rect x="17.5" y="17.5" width="989" height="989" rx="226.5" fill="none" stroke="#ffffff" stroke-opacity="0.07" stroke-width="3"/>
+
+  <!-- Peer arcs: two thin arcs sweeping into the glyph, left side -->
+  <g fill="none" stroke="#5b8cff" stroke-linecap="round">
+    <path d="M 205 640 A 340 340 0 0 1 205 384" stroke-opacity="0.32" stroke-width="26" stroke-dasharray="2 64"/>
+    <path d="M 295 600 A 230 230 0 0 1 295 424" stroke-opacity="0.55" stroke-width="26" stroke-dasharray="2 54"/>
+  </g>
+
+  <!-- Play glyph: rounded triangle -->
+  <g filter="url(#glow)">
+    <path fill="url(#glyph)" d="
+      M 425 305
+      Q 400 288.5 400 338
+      L 400 686
+      Q 400 735.5 450 705
+      L 719 547
+      Q 763 521.5 719 490
+      L 450 319
+      Q 440 312.5 425 305
+      Z"/>
+    <!-- Glyph highlight -->
+    <path fill="#ffffff" fill-opacity="0.22" d="
+      M 438 322
+      L 438 380
+      L 660 512
+      Q 700 486.5 660 460
+      L 452 322
+      Q 446 320 438 322
+      Z"/>
+  </g>
+</svg>
