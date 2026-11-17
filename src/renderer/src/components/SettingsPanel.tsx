@@ -1,0 +1,285 @@
+import { useEffect, useState } from 'react'
+import { X } from 'lucide-react'
+import { toast } from 'sonner'
+import { DEFAULT_SETTINGS, type AppSettings, type ProxyType } from '../../../shared/types.ts'
+import { api } from '../lib/api.ts'
+import { useUiStore } from '../lib/store.ts'
+
+const PROVIDER_NAMES: Record<string, string> = {
+  apibay: 'The Pirate Bay (apibay)',
+  nyaa: 'Nyaa',
+  yts: 'YTS',
+  '1337x': '1337x',
+  eztv: 'EZTV'
+}
+
+export function SettingsPanel() {
+  const setPanel = useUiStore((state) => state.setPanel)
+  const [draft, setDraft] = useState<AppSettings | null>(null)
+  const [defaultDownloads, setDefaultDownloads] = useState('')
+
+  useEffect(() => {
+    void api.settingsGet().then(setDraft)
+    void api.defaultDownloads().then(setDefaultDownloads)
+  }, [])
+
+  const defaultDownloadsLabel = defaultDownloads || 'System Downloads folder'
+
+  if (!draft) {
+    return (
+      <Overlay onClose={() => setPanel('none')}>
+        <div className="p-6 text-sm text-mist-400">Loading settings…</div>
+      </Overlay>
+    )
+  }
+
+  const patch = (changes: Partial<AppSettings>) => setDraft({ ...draft, ...changes })
+
+  const save = async () => {
+    const saved = await api.settingsSet(draft)
+    setDraft(saved)
+    toast.success('Settings saved')
+  }
+
+  return (
+    <Overlay onClose={() => setPanel('none')}>
+      <header className="flex items-center border-b border-ink-700 px-5 py-3">
+        <h2 className="text-sm font-semibold text-mist-100">Settings</h2>
+        <button
+          onClick={() => setPanel('none')}
+          className="ml-auto rounded p-1 text-mist-400 hover:bg-ink-700 hover:text-mist-100"
+        >
+          <X size={16} />
+        </button>
+      </header>
+
+      <div className="flex-1 space-y-6 overflow-y-auto p-5">
+        <Section title="Network proxy">
+          <p className="mb-2 text-xs text-mist-400">
+            Used for index lookups and for tunnelling the torrent engine&rsquo;s TCP traffic. UDP
+            (DHT and UDP trackers) is not tunnelled.
+          </p>
+          <label className="mb-2 flex items-center gap-2 text-xs text-mist-200">
+            <input
+              type="checkbox"
+              checked={draft.proxy.enabled}
+              onChange={(event) =>
+                patch({ proxy: { ...draft.proxy, enabled: event.target.checked } })
+              }
+              className="accent-[var(--color-accent-500)]"
+            />
+            Route traffic through a proxy
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={draft.proxy.type}
+              onChange={(event) =>
+                patch({ proxy: { ...draft.proxy, type: event.target.value as ProxyType } })
+              }
+              className="rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs"
+            >
+              <option value="http">HTTP</option>
+              <option value="socks5">SOCKS5</option>
+            </select>
+            <input
+              value={draft.proxy.host}
+              onChange={(event) => patch({ proxy: { ...draft.proxy, host: event.target.value } })}
+              placeholder="127.0.0.1"
+              className="w-40 rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs"
+            />
+            <input
+              value={draft.proxy.port}
+              type="number"
+              onChange={(event) => patch({ proxy: { ...draft.proxy, port: Number(event.target.value) } })}
+              placeholder="7890"
+              className="w-24 rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs"
+            />
+            <input
+              value={draft.proxy.username ?? ''}
+              onChange={(event) => patch({ proxy: { ...draft.proxy, username: event.target.value } })}
+              placeholder="username"
+              className="w-32 rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs"
+            />
+            <input
+              value={draft.proxy.password ?? ''}
+              type="password"
+              onChange={(event) => patch({ proxy: { ...draft.proxy, password: event.target.value } })}
+              placeholder="password"
+              className="w-32 rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs"
+            />
+          </div>
+        </Section>
+
+        <Section title="Indexes">
+          <div className="flex flex-col gap-1.5">
+            {Object.entries(PROVIDER_NAMES).map(([id, label]) => (
+              <label key={id} className="flex items-center gap-2 text-xs text-mist-200">
+                <input
+                  type="checkbox"
+                  checked={draft.providers[id] !== false}
+                  onChange={(event) =>
+                    patch({ providers: { ...draft.providers, [id]: event.target.checked } })
+                  }
+                  className="accent-[var(--color-accent-500)]"
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+        </Section>
+
+        <Section title="Trackers">
+          <p className="mb-2 text-xs text-mist-400">One per line. Used for magnet links.</p>
+          <textarea
+            value={draft.trackers.join('\n')}
+            onChange={(event) => patch({ trackers: event.target.value.split('\n').filter(Boolean) })}
+            rows={7}
+            className="w-full rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 font-mono text-[11px] text-mist-200"
+          />
+        </Section>
+
+        <Section title="Metadata">
+          <label className="mb-1 block text-xs text-mist-200">TMDB API key (optional)</label>
+          <input
+            value={draft.tmdbApiKey ?? ''}
+            onChange={(event) => patch({ tmdbApiKey: event.target.value || undefined })}
+            placeholder="Paste your api.themoviedb.org key"
+            className="w-full rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 font-mono text-xs"
+          />
+          <p className="mt-1 text-[11px] text-mist-400">
+            Adds posters, ratings and genres. Everything else works without it.
+          </p>
+        </Section>
+
+        <Section title="qBittorrent">
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={draft.qbittorrent.url}
+              onChange={(event) =>
+                patch({ qbittorrent: { ...draft.qbittorrent, url: event.target.value } })
+              }
+              placeholder="http://127.0.0.1:8080"
+              className="w-56 rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs"
+            />
+            <input
+              value={draft.qbittorrent.username ?? ''}
+              onChange={(event) =>
+                patch({ qbittorrent: { ...draft.qbittorrent, username: event.target.value } })
+              }
+              placeholder="username"
+              className="w-32 rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs"
+            />
+            <input
+              value={draft.qbittorrent.password ?? ''}
+              type="password"
+              onChange={(event) =>
+                patch({ qbittorrent: { ...draft.qbittorrent, password: event.target.value } })
+              }
+              placeholder="password"
+              className="w-32 rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs"
+            />
+          </div>
+        </Section>
+
+        <Section title="Downloads">
+          <label className="mb-1 block text-xs text-mist-200">
+            Where finished files are saved
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              value={draft.downloadDir || defaultDownloadsLabel}
+              onChange={(event) => patch({ downloadDir: event.target.value || undefined })}
+              placeholder={defaultDownloadsLabel}
+              className="min-w-0 flex-1 rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 font-mono text-xs text-mist-200"
+            />
+            <button
+              onClick={async () => {
+                const picked = await api.pickDirectory(draft.downloadDir || undefined)
+                if (picked) setDraft({ ...draft, downloadDir: picked })
+              }}
+              className="shrink-0 rounded-md border border-ink-600 bg-ink-800 px-2.5 py-1.5 text-xs text-mist-200 transition-colors hover:border-ink-500 hover:text-mist-100"
+            >
+              Browse
+            </button>
+            {draft.downloadDir && (
+              <button
+                onClick={() => patch({ downloadDir: undefined })}
+                title="Use the system Downloads folder"
+                className="shrink-0 rounded-md border border-ink-600 bg-ink-800 px-2.5 py-1.5 text-xs text-mist-200 transition-colors hover:border-ink-500 hover:text-mist-100"
+              >
+                Default
+              </button>
+            )}
+          </div>
+          <p className="mt-1 text-[11px] text-mist-400">
+            Defaults to your system Downloads folder. Applies to the built-in engine and to
+            qBittorrent as its save path.
+          </p>
+        </Section>
+
+        <Section title="Behaviour">
+          <label className="flex cursor-pointer items-center gap-2 text-xs text-mist-200">
+            <input
+              type="checkbox"
+              checked={draft.pauseWhenMinimized}
+              onChange={(event) => patch({ pauseWhenMinimized: event.target.checked })}
+              className="accent-[var(--color-accent-500)]"
+            />
+            Pause downloads while the app is minimized
+          </label>
+          <p className="mt-1 text-[11px] text-mist-400">
+            Halts all torrents when the window is minimized and resumes them on restore.
+          </p>
+        </Section>
+      </div>
+
+      <footer className="flex items-center gap-2 border-t border-ink-700 px-5 py-3">
+        <button
+          onClick={() => setDraft({ ...DEFAULT_SETTINGS })}
+          className="rounded-lg border border-ink-600 bg-ink-800 px-3 py-1.5 text-xs text-mist-200 hover:text-mist-100"
+        >
+          Reset to defaults
+        </button>
+        <button
+          onClick={() => void save()}
+          className="ml-auto rounded-lg bg-accent-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-accent-500"
+        >
+          Save
+        </button>
+      </footer>
+    </Overlay>
+  )
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-mist-400">{title}</h3>
+      {children}
+    </section>
+  )
+}
+
+export function Overlay({
+  title,
+  onClose,
+  children
+}: {
+  title?: string
+  onClose: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-40 flex items-start justify-center bg-black/60 p-8 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-full w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-ink-600 bg-ink-850 shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        {children}
+      </div>
+    </div>
+  )
+}

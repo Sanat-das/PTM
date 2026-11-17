@@ -1,0 +1,34 @@
+appId: com.ptm.app
+productName: PTM
+copyright: PTM
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - out/**/*
+  - package.json
+  - '!node_modules/.cache/**'
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: PTM-${version}-setup.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+
+compression: normal
+asarUnpack:
+  # ffmpeg is spawned as a process, so it cannot live inside the asar archive.
+  - node_modules/ffmpeg-static/**
+# Native deps (bufferutil, utf-8-validate, utp-native) all ship N-API prebuilds and are optional,
+# so there is nothing to compile for the Electron ABI.
+npmRebuild: false
