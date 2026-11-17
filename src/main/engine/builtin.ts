@@ -172,7 +172,7 @@ export class BuiltinEngine implements TorrentEngine {
       if (current.state !== 'fetching-metadata' || current.paused) return
       current.state = 'error'
       current.error =
-        'Could not reach any peers for this torrent. Indexes and trackers may be blocked on this network — check Diagnostics.'
+        'Could not reach any peers for this torrent. Trackers may be blocked on this network (run Diagnostics to check). If indexes and trackers show red, enable the proxy in Settings → Network proxy — it tunnels the torrent engine’s TCP traffic.'
       this.emit(current)
     }, 45_000)
 

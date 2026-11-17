@@ -103,8 +103,13 @@ Public index sites and trackers are blocked or intercepted on a lot of networks.
 for that:
 
 - Every provider is checked individually and shown in the header as a green/red dot.
-- Diagnostics (the pulse icon) tests each index, the configured trackers, YouTube and the metadata
-  source separately, so you can see exactly what your network permits.
+- Diagnostics (the pulse icon) tests each index and the configured HTTPS/WSS trackers
+  (plain TCP — UDP trackers are skipped as unprobeable), plus YouTube and the metadata
+  source, so you can see exactly what your network permits.
+- Networks that block UDP (DHT, UDP trackers) and plain HTTP — common on corporate
+  networks — leave only the WSS trackers working. If peers never connect, enable the
+  proxy (Settings → Network proxy): the torrent engine’s TCP traffic (peers, HTTPS/WSS
+  trackers) tunnels through HTTP CONNECT, which is usually the only path out.
 - If a swarm cannot be reached within 45 seconds, the player says so instead of spinning.
 
 ## Settings worth knowing

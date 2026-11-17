@@ -224,17 +224,16 @@ export const DEFAULT_SETTINGS: AppSettings = {
   engine: 'builtin',
   qbittorrent: { url: 'http://127.0.0.1:8080' },
   trackers: [
-    'udp://tracker.opentrackr.org:1337/announce',
-    'udp://open.stealth.si:80/announce',
-    'https://tracker.gbitt.info/announce',
-    'https://tracker.torrent.eu.org:443/announce',
-    'https://tracker.nzb.la/announce',
-    'https://tracker.moeking.me:443/announce',
+    // WSS trackers survive corporate networks that block UDP and plain HTTP.
+    'wss://tracker.openwebtorrent.com',
+    'wss://tracker.webtorrent.dev',
+    // HTTPS trackers with valid certs for normal networks.
     'https://tr.burnabyhighstar.com/announce',
     'https://tracker.bt4g.com/announce',
-    'wss://tracker.btorrent.xyz',
-    'wss://tracker.openwebtorrent.com',
-    'wss://tracker.webtorrent.dev'
+    'https://tracker.torrent.eu.org:443/announce',
+    // UDP trackers — fine on open networks, dead on filtered ones.
+    'udp://tracker.opentrackr.org:1337/announce',
+    'udp://open.stealth.si:80/announce'
   ],
   autoplayReviews: true,
   pauseWhenMinimized: false
