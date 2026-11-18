@@ -38,16 +38,16 @@ function applyProxy(): void {
 
 /**
  * Re-add torrents that were in flight when the app last closed. Items that
- * were paused are re-paused once added; errored items are left alone (the
- * user can re-add them from the library) so a failing swarm doesn't loop
- * alarms on every launch.
+ * were paused are re-paused once added; error items are retried too — the
+ * engine treats them as fresh attempts and surfaces failures as usual.
  */
 function resumeIncompleteDownloads(): void {
   const pending = downloads
     .list()
     .filter(
       (item) =>
-        item.infoHash && (item.status === 'downloading' || item.status === 'paused')
+        item.infoHash &&
+        (item.status === 'downloading' || item.status === 'paused' || item.status === 'error')
     )
   if (pending.length === 0) return
 
@@ -70,6 +70,27 @@ function resumeIncompleteDownloads(): void {
         console.warn('[resume] could not re-add', item.infoHash, (error as Error).message)
       })
   }
+}
+
+/**
+ * Auto-update only engages when a publish destination ships inside the
+ * installer (electron-builder's `publish` key — see electron-builder.yml).
+ * Without one, checkForUpdatesAndNotify rejects and this does nothing.
+ */
+function checkForUpdates(): void {
+  void import('electron-updater')
+    .then(({ autoUpdater }) => {
+      autoUpdater.autoDownload = true
+      autoUpdater.autoInstallOnAppQuit = true
+      autoUpdater.on('error', (error) => {
+        console.warn('[update] check failed', (error as Error).message)
+      })
+      autoUpdater.on('update-downloaded', (info) => {
+        console.log(`[update] ${info.version} downloaded — installs on restart`)
+      })
+      return autoUpdater.checkForUpdatesAndNotify()
+    })
+    .catch(() => undefined)
 }
 
 function createWindow(): void {
@@ -145,6 +166,7 @@ if (!gotLock) {
     resumeIncompleteDownloads()
 
     createWindow()
+    checkForUpdates()
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()

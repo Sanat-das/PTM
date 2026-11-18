@@ -27,6 +27,16 @@ nsis:
   createStartMenuShortcut: true
 
 compression: normal
+# Auto-update is opt-in: uncomment and point at YOUR release feed, rebuild,
+# and the app's built-in update check starts working. GitHub Releases example:
+# publish:
+#   provider: github
+#   owner: your-account
+#   repo: your-repo
+# Generic feed (any static file host) example:
+# publish:
+#   provider: generic
+#   url: https://example.com/releases
 asarUnpack:
   # ffmpeg is spawned as a process, so it cannot live inside the asar archive.
   - node_modules/ffmpeg-static/**
