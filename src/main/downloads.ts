@@ -33,6 +33,30 @@ function sha1(text: string): string {
   return createHash('sha1').update(text).digest('hex')
 }
 
+/**
+ * Move a library file or folder to the system Recycle Bin instead of
+ * destroying it outright. Falls back to a hard delete only when Electron is
+ * unavailable (unit tests); a trashItem failure propagates so the caller can
+ * report the path as not deleted rather than silently destroy it.
+ */
+async function trashItem(target: string, fallback: 'file' | 'dir'): Promise<void> {
+  const fallbackDelete = (): Promise<void> => {
+    // No usable Electron shell (unit tests) — old hard-delete behaviour.
+    if (fallback === 'file') return fs.promises.unlink(target)
+    return fs.promises.rm(target, { recursive: true, force: true })
+  }
+  let electron: unknown
+  try {
+    electron = createRequire(import.meta.url)('electron')
+  } catch {
+    return fallbackDelete()
+  }
+  // Under plain Node require('electron') yields the binary path, not the API.
+  const shell = (electron as { shell?: { trashItem?: (p: string) => Promise<void> } })?.shell
+  if (typeof shell?.trashItem !== 'function') return fallbackDelete()
+  await shell.trashItem(target)
+}
+
 function primaryVideo(item: DownloadItem): DownloadItemFile | undefined {
   return item.files.filter((file) => file.isVideo).sort((a, b) => b.size - a.size)[0]
 }
@@ -286,6 +310,8 @@ class DownloadsManager {
         const full = path.join(dir, entry.name)
         if (entry.isDirectory()) {
           if (entry.name.startsWith('.') || entry.name === 'node_modules') continue
+          // Release-folder samples are teaser clips, not separate movies.
+          if (entry.name.toLowerCase() === 'sample') continue
           walk(full, depth + 1)
         } else if (entry.isFile() && isVideoFile(entry.name)) {
           videoPaths.push(full)
@@ -391,17 +417,19 @@ class DownloadsManager {
             failed.push(file.path)
             continue
           }
-          try {
-            await fs.promises.unlink(file.path)
+          if (!fs.existsSync(file.path)) {
+            // Already gone — count it as removed without an error.
             deleted += 1
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-              failed.push(file.path)
-            } else {
-              deleted += 1
-            }
+            continue
+          }
+          try {
+            await trashItem(file.path, 'file')
+            deleted += 1
+          } catch {
+            failed.push(file.path)
           }
         }
+        failed.push(...(await this.removeItemFolders(item)))
       }
       const next = { ...this.store.get() }
       delete next[id]
@@ -411,6 +439,103 @@ class DownloadsManager {
       library.remove(id)
     }
     return { deleted, failed }
+  }
+
+  /** Deepest common ancestor of every directory in `dirs`; '' if none. */
+  private static commonDir(dirs: string[]): string {
+    if (dirs.length === 0) return ''
+    let common = dirs[0].split(path.sep)
+    for (const dir of dirs.slice(1)) {
+      const segs = dir.split(path.sep)
+      let i = 0
+      while (i < common.length && i < segs.length && common[i] === segs[i]) i++
+      common = common.slice(0, i)
+      if (common.length === 0) return ''
+    }
+    return common.join(path.sep)
+  }
+
+  /** Recursively list every file path under `dir` (lowercased), skipping errors. */
+  private static async listFiles(dir: string): Promise<string[]> {
+    const out: string[] = []
+    const walk = async (current: string): Promise<void> => {
+      let entries: import('node:fs').Dirent[]
+      try {
+        entries = await fs.promises.readdir(current, { withFileTypes: true })
+      } catch {
+        return
+      }
+      for (const entry of entries) {
+        const full = path.join(current, entry.name)
+        if (entry.isDirectory()) await walk(full)
+        else out.push(full.toLowerCase())
+      }
+    }
+    await walk(dir)
+    return out
+  }
+
+  /**
+   * Release folders (e.g. `Inception.2010.1080p...-GROUP/`) hold files the
+   * downloads store does not track (.nfo, cover art, samples). After the
+   * tracked files are unlinked, remove the release folder too — but never
+   * the download root itself, and never a folder containing files that
+   * belong to another tracked item (falls back to removing only
+   * now-empty folders).
+   *
+   * Returns paths that could not be removed.
+   */
+  private async removeItemFolders(item: DownloadItem): Promise<string[]> {
+    const failed: string[] = []
+    const root = path.resolve(defaultDownloadRoot())
+    const recorded = item.files
+      .filter((file) => typeof file.path === 'string' && path.isAbsolute(file.path))
+      .map((file) => path.resolve(file.path))
+      .filter((p) => p === root || p.startsWith(root + path.sep))
+    if (recorded.length === 0) return failed
+
+    const rmdirEmpty = async (): Promise<void> => {
+      const dirs = [...new Set(recorded.map((p) => path.dirname(p)))].sort((a, b) => b.length - a.length)
+      for (const dir of dirs) {
+        let current = dir
+        while (current !== root && current.startsWith(root + path.sep)) {
+          try {
+            await fs.promises.rmdir(current)
+          } catch {
+            break
+          }
+          current = path.dirname(current)
+        }
+      }
+    }
+
+    const common = DownloadsManager.commonDir(recorded.map((p) => path.dirname(p)))
+    // Flat import or files scattered across the root: leave the root alone.
+    if (!common || common === root || !common.startsWith(root + path.sep)) {
+      await rmdirEmpty()
+      return failed
+    }
+
+    // Never delete anything another tracked item owns.
+    const otherTracked = new Set(
+      Object.values(this.store.get())
+        .filter((other) => other.id !== item.id)
+        .flatMap((other) => other.files.map((file) => path.resolve(file.path).toLowerCase()))
+    )
+    if (otherTracked.size > 0) {
+      const contents = await DownloadsManager.listFiles(common)
+      if (contents.some((p) => otherTracked.has(p))) {
+        await rmdirEmpty()
+        return failed
+      }
+    }
+
+    try {
+      await trashItem(common, 'dir')
+    } catch {
+      failed.push(common)
+    }
+    return failed
   }
 
   /** Reveal the primary video in the OS file manager. */

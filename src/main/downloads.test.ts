@@ -146,3 +146,61 @@ test('scan imports untracked video files with sibling subtitles, skips known', a
   const listed = downloads.list().find((entry) => entry.id === item.id)
   assert.equal(listed?.status, 'missing')
 })
+
+test('delete files removes the release folder including untracked files', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptm-folder-'))
+  setUserDataDir(dir)
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+
+  const mediaDir = path.join(dir, 'media')
+  const releaseDir = path.join(mediaDir, 'Inception.2010.1080p.WEB-DL.x264-GROUP')
+  const sampleDir = path.join(releaseDir, 'Sample')
+  fs.mkdirSync(sampleDir, { recursive: true })
+  const videoPath = path.join(releaseDir, 'Inception.2010.1080p.WEB-DL.x264-GROUP.mkv')
+  fs.writeFileSync(videoPath, 'video-bytes')
+  fs.writeFileSync(path.join(releaseDir, 'Inception.2010.nfo'), 'nfo')
+  fs.writeFileSync(path.join(sampleDir, 'sample.mkv'), 'sample-bytes')
+
+  settings.set({ downloadDir: mediaDir })
+  t.after(() => settings.set({ downloadDir: undefined }))
+
+  const first = await downloads.scan()
+  assert.equal(first.added, 1)
+  const item = downloads.list().find((entry) => path.resolve(entry.files[0].path) === path.resolve(videoPath))
+  assert.ok(item)
+
+  const result = await downloads.remove(item.id, true)
+  assert.equal(result.failed.length, 0)
+  // The whole release folder is gone — including .nfo and Sample/.
+  assert.equal(fs.existsSync(releaseDir), false)
+})
+
+test('delete files refuses a folder that contains another tracked item', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptm-shared-'))
+  setUserDataDir(dir)
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+
+  const mediaDir = path.join(dir, 'media')
+  const sharedDir = path.join(mediaDir, 'Two.Movies.2024.1080p.WEB-DL.x264-GROUP')
+  fs.mkdirSync(sharedDir, { recursive: true })
+  const firstPath = path.join(sharedDir, 'First.Movie.2024.1080p.WEB-DL.x264-GROUP.mkv')
+  const secondPath = path.join(sharedDir, 'Second.Movie.2024.1080p.WEB-DL.x264-GROUP.mkv')
+  fs.writeFileSync(firstPath, 'one')
+  fs.writeFileSync(secondPath, 'two')
+
+  settings.set({ downloadDir: mediaDir })
+  t.after(() => settings.set({ downloadDir: undefined }))
+
+  const first = await downloads.scan()
+  assert.equal(first.added, 2)
+  const items = downloads.list()
+  const firstItem = items.find((entry) => path.resolve(entry.files[0].path) === path.resolve(firstPath))
+  assert.ok(firstItem)
+
+  const result = await downloads.remove(firstItem.id, true)
+  assert.equal(result.failed.length, 0)
+  // The first file is gone; the other tracked item and the folder survive.
+  assert.equal(fs.existsSync(firstPath), false)
+  assert.equal(fs.existsSync(secondPath), true)
+  assert.equal(fs.existsSync(sharedDir), true)
+})

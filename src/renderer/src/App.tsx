@@ -16,7 +16,11 @@ import { TopBar } from './components/TopBar.tsx'
 import { useTorrentSession } from './hooks/useTorrentSession.ts'
 
 export default function App() {
-  const { submitted, filters, panel, player, closePlayer } = useUiStore()
+  const submitted = useUiStore((state) => state.submitted)
+  const filters = useUiStore((state) => state.filters)
+  const panel = useUiStore((state) => state.panel)
+  const player = useUiStore((state) => state.player)
+  const closePlayer = useUiStore((state) => state.closePlayer)
   const [pendingResult, setPendingResult] = useState<TorrentResult | null>(null)
   const autoOpenedRef = useRef<string | null>(null)
   const { session, error, start, download, reset, pickFile, stopTorrent, setPaused, resumeFromLibrary } =

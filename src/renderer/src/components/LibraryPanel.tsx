@@ -116,11 +116,11 @@ export function LibraryPanel({ onResume }: LibraryPanelProps) {
   const removeItem = async (item: DownloadItem, deleteFiles: boolean) => {
     setArmedRemoveId(null)
     try {
-      const { deleted, failed } = await api.downloadsRemove(item.id, deleteFiles)
+      const { failed } = await api.downloadsRemove(item.id, deleteFiles)
       if (failed.length > 0) {
         toast.error(`Removed from library, but ${failed.length} file(s) could not be deleted`)
       } else if (deleteFiles) {
-        toast.success(`Deleted ${deleted} file${deleted === 1 ? '' : 's'} from disk`)
+        toast.success('Removed from library — files deleted from disk')
       } else {
         toast.success('Removed from library (files kept on disk)')
       }
@@ -404,8 +404,8 @@ function DownloadedList({
                 </button>
                 <button
                   onClick={() => void onRemove(item, true)}
-                  title="Delete files from disk too"
-                  aria-label={`Delete files for ${item.title}`}
+                  title="Delete the release folder and everything in it from disk"
+                  aria-label={`Delete the release folder for ${item.title}, including all its files`}
                   className="rounded border border-bad-500/50 bg-bad-500/15 p-1.5 text-bad-500 transition-colors hover:bg-bad-500/25"
                 >
                   <Trash2 size={14} />

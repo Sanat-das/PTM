@@ -23,7 +23,9 @@ export function TopBar({
   onOpenLibrary,
   onOpenDiagnostics
 }: TopBarProps) {
-  const { query, setQuery, submit } = useUiStore()
+  const query = useUiStore((state) => state.query)
+  const setQuery = useUiStore((state) => state.setQuery)
+  const submit = useUiStore((state) => state.submit)
   const [focused, setFocused] = useState(false)
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([])
   const [activeIndex, setActiveIndex] = useState(-1)

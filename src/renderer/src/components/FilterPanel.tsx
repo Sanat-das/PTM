@@ -21,8 +21,13 @@ const THEME_LABELS: Record<string, string> = {
 }
 
 export function FilterPanel({ results }: FilterPanelProps) {
-  const { filters, setFilters, toggleTheme, toggleResolution, toggleSource, toggleCodec, resetFilters } =
-    useUiStore()
+  const filters = useUiStore((state) => state.filters)
+  const setFilters = useUiStore((state) => state.setFilters)
+  const toggleTheme = useUiStore((state) => state.toggleTheme)
+  const toggleResolution = useUiStore((state) => state.toggleResolution)
+  const toggleSource = useUiStore((state) => state.toggleSource)
+  const toggleCodec = useUiStore((state) => state.toggleCodec)
+  const resetFilters = useUiStore((state) => state.resetFilters)
 
   const facets = useMemo(() => facetCounts(results), [results])
 

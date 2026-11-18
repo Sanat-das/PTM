@@ -36,6 +36,42 @@ function applyProxy(): void {
   }
 }
 
+/**
+ * Re-add torrents that were in flight when the app last closed. Items that
+ * were paused are re-paused once added; errored items are left alone (the
+ * user can re-add them from the library) so a failing swarm doesn't loop
+ * alarms on every launch.
+ */
+function resumeIncompleteDownloads(): void {
+  const pending = downloads
+    .list()
+    .filter(
+      (item) =>
+        item.infoHash && (item.status === 'downloading' || item.status === 'paused')
+    )
+  if (pending.length === 0) return
+
+  console.log(`[resume] re-adding ${pending.length} incomplete download(s)`)
+  for (const item of pending) {
+    const magnet = `magnet:?xt=urn:btih:${item.infoHash}&dn=${encodeURIComponent(item.name)}`
+    engineManager
+      .add({ magnet, title: item.name, infoHash: item.infoHash })
+      .then(async (session) => {
+        downloads.trackAdd({ magnet, infoHash: item.infoHash, title: item.name, sessionId: session.id })
+        if (item.status === 'paused') {
+          try {
+            await engineManager.setPaused(session.id, true)
+          } catch (error) {
+            console.warn('[resume] could not re-pause', item.infoHash, (error as Error).message)
+          }
+        }
+      })
+      .catch((error) => {
+        console.warn('[resume] could not re-add', item.infoHash, (error as Error).message)
+      })
+  }
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -106,6 +142,7 @@ if (!gotLock) {
 
     await getStreamServer().start()
     registerIpc(() => mainWindow)
+    resumeIncompleteDownloads()
 
     createWindow()
 
