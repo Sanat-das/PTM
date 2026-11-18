@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { X, Loader2, AlertTriangle, Octagon } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { X, Loader2, AlertTriangle, Octagon, Volume2, Check } from 'lucide-react'
 import { api } from '../lib/api.ts'
+import type { AudioTrackInfo } from '../../../shared/types.ts'
 
 const LANGUAGE_LABELS: Record<string, string> = {
   eng: 'English',
@@ -108,6 +109,32 @@ function subtitleLang(name: string): string | undefined {
   return tokens.find((token) => LANGUAGE_LABELS[token])
 }
 
+/** Compare two audio language tags ignoring 2/3-letter differences. */
+function languageKey(tag: string | undefined): string | undefined {
+  if (!tag) return undefined
+  const lower = tag.trim().toLowerCase()
+  return LANGUAGE_LABELS[lower] ?? lower
+}
+
+function audioLanguageLabel(track: AudioTrackInfo): string {
+  if (track.language) {
+    const known = LANGUAGE_LABELS[track.language.toLowerCase()]
+    if (known) return known
+  }
+  return track.title ?? `Track ${track.index + 1}`
+}
+
+function audioDetail(track: AudioTrackInfo): string {
+  const parts = [track.codec?.toUpperCase()]
+  if (track.channels === 1) parts.push('Mono')
+  else if (track.channels === 2) parts.push('Stereo')
+  else if (track.channels === 6) parts.push('5.1')
+  else if (track.channels === 8) parts.push('7.1')
+  else if (track.channels) parts.push(`${track.channels}ch`)
+  if (track.isDefault) parts.push('Default')
+  return parts.filter(Boolean).join(' · ')
+}
+
 interface PlayerProps {
   sessionId: string
   fileIndex: number
@@ -123,16 +150,29 @@ interface PlayerProps {
 }
 
 export function Player({ sessionId, fileIndex, resumePositionSec, title, theme, imdbId, onClose, onStop }: PlayerProps) {
+  const queryClient = useQueryClient()
   const videoRef = useRef<HTMLVideoElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   // Whether the visibility hook paused the video (so restore can resume it),
   // as opposed to the user pressing pause themselves.
   const autoPausedRef = useRef(false)
+  // Position to restore after an audio-track switch reloads the stream.
+  const pendingSeekRef = useRef<number | null>(null)
+  // The remembered-language preference is applied once per file, not on every render.
+  const preferenceAppliedRef = useRef(false)
   const settingsQuery = useQuery({
     queryKey: ['settings'],
     queryFn: () => api.settingsGet(),
     staleTime: Infinity
   })
+  // Disk playback (completed download / import) has no live engine session to
+  // stop — the Stop button is hidden in that case.
+  const downloadItemQuery = useQuery({
+    queryKey: ['download-item', sessionId],
+    queryFn: () => api.downloadsGet(sessionId),
+    staleTime: Infinity
+  })
+  const isLocalPlayback = Boolean(downloadItemQuery.data)
   const pausePlaybackOnMinimize = settingsQuery.data?.pausePlaybackOnMinimize ?? false
   const [url, setUrl] = useState<string | null>(null)
   const [mode, setMode] = useState<'direct' | 'hls'>('direct')
@@ -142,6 +182,26 @@ export function Player({ sessionId, fileIndex, resumePositionSec, title, theme, 
   const [subtitles, setSubtitles] = useState<
     Array<{ url: string; label: string; lang?: string }>
   >([])
+  const [audioTracks, setAudioTracks] = useState<AudioTrackInfo[] | null>(null)
+  const [selectedAudio, setSelectedAudio] = useState<number | null>(null)
+  const [audioMenuOpen, setAudioMenuOpen] = useState(false)
+  const [stopArmed, setStopArmed] = useState(false)
+
+  // Keep the window title meaningful instead of a bare "PTM".
+  useEffect(() => {
+    const previous = document.title
+    document.title = title ? `${title} — PTM` : 'PTM'
+    return () => {
+      document.title = previous
+    }
+  }, [title])
+
+  // Disarm the two-step Stop after a few seconds.
+  useEffect(() => {
+    if (!stopArmed) return
+    const timer = setTimeout(() => setStopArmed(false), 4000)
+    return () => clearTimeout(timer)
+  }, [stopArmed])
 
   // External subtitle files travel with the torrent; expose the usable ones to
   // the video element so the native captions menu can switch them.
@@ -190,6 +250,45 @@ export function Player({ sessionId, fileIndex, resumePositionSec, title, theme, 
     }
   }, [sessionId, fileIndex])
 
+  // List the embedded audio streams; files with a single track need no menu.
+  useEffect(() => {
+    let cancelled = false
+    setAudioTracks(null)
+    setSelectedAudio(null)
+    setAudioMenuOpen(false)
+    preferenceAppliedRef.current = false
+
+    api
+      .audioTracks(sessionId, fileIndex)
+      .then((tracks) => {
+        if (!cancelled) setAudioTracks(tracks)
+      })
+      .catch(() => {
+        if (!cancelled) setAudioTracks([])
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [sessionId, fileIndex])
+
+  // Preselect the remembered language when it is available and differs from
+  // the file's default track (switching means a transcode, so it is only
+  // applied when playback would not already pick it).
+  const preferredLanguage = settingsQuery.data?.preferredAudioLanguage
+  useEffect(() => {
+    if (preferenceAppliedRef.current) return
+    if (!audioTracks || preferredLanguage === undefined) return
+    preferenceAppliedRef.current = true
+
+    const match = audioTracks.find(
+      (track) => languageKey(track.language) === languageKey(preferredLanguage)
+    )
+    if (!match) return
+    const defaultIndex = audioTracks.find((track) => track.isDefault)?.index ?? 0
+    if (match.index !== defaultIndex) setSelectedAudio(match.index)
+  }, [audioTracks, preferredLanguage])
+
   // Pause the video when the window is minimized; resume on restore — but
   // only playback the hook itself paused, never something the user paused.
   useEffect(() => {
@@ -217,14 +316,23 @@ export function Player({ sessionId, fileIndex, resumePositionSec, title, theme, 
     async function start(forceTranscode: boolean) {
       try {
         setError(null)
-        setStatus(forceTranscode ? 'Starting transcoder…' : 'Preparing stream…')
-        const target = await api.streamStart({ sessionId, fileIndex, forceTranscode })
+        setUrl(null)
+        const switching = selectedAudio !== null
+        setStatus(switching ? 'Switching audio…' : forceTranscode ? 'Starting transcoder…' : 'Preparing stream…')
+        const target = await api.streamStart({
+          sessionId,
+          fileIndex,
+          forceTranscode,
+          audioTrack: switching ? selectedAudio : undefined
+        })
         if (cancelled) return
 
         setMode(target.mode)
         setUrl(target.url)
-        setCanForceTranscode(target.mode === 'direct')
-        setStatus(target.mode === 'hls' ? 'Buffering from torrent…' : 'Connecting to torrent…')
+        setCanForceTranscode(target.mode === 'direct' && selectedAudio === null)
+        setStatus(
+          target.mode === 'hls' ? 'Buffering from torrent…' : 'Connecting to torrent…'
+        )
       } catch (err) {
         if (!cancelled) setError((err as Error).message)
       }
@@ -234,7 +342,7 @@ export function Player({ sessionId, fileIndex, resumePositionSec, title, theme, 
     return () => {
       cancelled = true
     }
-  }, [sessionId, fileIndex])
+  }, [sessionId, fileIndex, selectedAudio])
 
   // Attach the stream to the video element once we know the URL.
   useEffect(() => {
@@ -260,8 +368,10 @@ export function Player({ sessionId, fileIndex, resumePositionSec, title, theme, 
           hls.attachMedia(video)
 
           let retries = 0
+          let mediaRetries = 0
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
             retries = 0
+            mediaRetries = 0
             setStatus('Buffering from torrent…')
           })
           hls.on(Hls.Events.ERROR, (_event, data) => {
@@ -275,7 +385,10 @@ export function Player({ sessionId, fileIndex, resumePositionSec, title, theme, 
               hls?.startLoad()
               return
             }
-            if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            if (data.type === Hls.ErrorTypes.MEDIA_ERROR && mediaRetries < 3) {
+              // Unbounded recoverMediaError loops churn the buffer forever;
+              // give up after a few attempts and surface the error.
+              mediaRetries += 1
               hls?.recoverMediaError()
               return
             }
@@ -299,8 +412,12 @@ export function Player({ sessionId, fileIndex, resumePositionSec, title, theme, 
 
     const onLoadedMetadata = () => {
       setStatus('Playing')
-      if (resumePositionSec && resumePositionSec > 0) {
-        video.currentTime = resumePositionSec
+      // A pending seek wins: after an audio-track switch, resume where the
+      // user was rather than from the original resume point.
+      const seek = pendingSeekRef.current ?? resumePositionSec
+      pendingSeekRef.current = null
+      if (seek && seek > 0) {
+        video.currentTime = seek
       }
     }
     const onCanPlay = () => setStatus('Playing')
@@ -323,6 +440,10 @@ export function Player({ sessionId, fileIndex, resumePositionSec, title, theme, 
       video.removeEventListener('canplay', onCanPlay)
       video.removeEventListener('waiting', onWaiting)
       video.removeEventListener('error', onError)
+      // Release the old source so a re-run doesn't keep the old connection
+      // or stale range requests alive.
+      video.removeAttribute('src')
+      video.load()
       hls?.destroy()
     }
   }, [url, mode])
@@ -335,26 +456,36 @@ export function Player({ sessionId, fileIndex, resumePositionSec, title, theme, 
     let lastSaved = 0
     const save = () => {
       const current = video.currentTime
-      if (!current || video.readyState === 0 || Math.abs(current - lastSaved) < 1) return
+      if (Number.isNaN(current) || video.readyState === 0 || Math.abs(current - lastSaved) < 1) return
       lastSaved = current
       api
         .torrentStatus(sessionId)
         .then((status) => {
-          if (!status?.infoHash) return
+          if (status?.infoHash) {
+            return { hash: status.infoHash, fallbackTitle: status.name }
+          }
+          // No engine session: the file is streamed from disk (completed
+          // download or import), so the downloads library holds the identity.
+          return api.downloadsGet(sessionId).then((item) =>
+            item ? { hash: item.infoHash ?? item.id, fallbackTitle: item.title } : null
+          )
+        })
+        .then((resolved) => {
+          if (!resolved) return
           void api
             .librarySaveProgress({
-              infoHash: status.infoHash,
+              infoHash: resolved.hash,
               fileIndex,
               positionSec: current,
               durationSec: video.duration || undefined,
               updatedAt: Date.now(),
-              title: title ?? status.name,
+              title: title ?? resolved.fallbackTitle,
               theme,
               imdbId
             })
             .catch((err) => console.warn('[player] progress save failed', err))
         })
-        .catch((err) => console.warn('[player] status fetch failed', err))
+        .catch((err) => console.warn('[player] progress save failed', err))
     }
 
     const interval = setInterval(save, 5000)
@@ -366,16 +497,54 @@ export function Player({ sessionId, fileIndex, resumePositionSec, title, theme, 
     }
   }, [sessionId, fileIndex, url, theme, imdbId, title])
 
-  // Space toggles play/pause, Escape closes.
+  // Chromium cannot pick a different embedded track in-band, so switching
+  // re-transcodes with the chosen track mapped in and resumes where the
+  // playhead was. Also remembers the language for future files.
+  const selectAudioTrack = (track: AudioTrackInfo) => {
+    setAudioMenuOpen(false)
+    // `selectedAudio` stays null until the user switches once, so compare
+    // against the track that is actually playing (the default, or the
+    // user's earlier pick) — not raw state — to avoid a pointless restart.
+    const effective = selectedAudio ?? audioTracks?.find((t) => t.isDefault)?.index ?? 0
+    if (track.index === effective) return
+    const current = videoRef.current?.currentTime ?? 0
+    if (current > 0) pendingSeekRef.current = current
+    setSelectedAudio(track.index)
+    if (track.language) {
+      api
+        .settingsSet({ preferredAudioLanguage: track.language })
+        .then((saved) => queryClient.setQueryData(['settings'], saved))
+        .catch((err) =>
+          console.warn('[player] failed to save preferred audio language', err)
+        )
+    }
+  }
+
+  // Space toggles play/pause, Escape closes (the audio menu first, then the
+  // player), F toggles fullscreen.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-      // Leave Space alone when a control is focused — it would both activate
-      // the control and toggle playback.
+      if (event.key === 'Escape') {
+        if (audioMenuOpen) {
+          event.preventDefault()
+          setAudioMenuOpen(false)
+          return
+        }
+        onClose()
+        return
+      }
       const target = event.target as HTMLElement | null
       const interactive = target?.closest(
         'button, input, select, textarea, a, [role="button"]'
       )
+      if (event.key === 'f' && !interactive) {
+        event.preventDefault()
+        if (document.fullscreenElement) void document.exitFullscreen()
+        else void containerRef.current?.requestFullscreen()
+        return
+      }
+      // Leave Space alone when a control is focused — it would both activate
+      // the control and toggle playback.
       if (event.code === 'Space' && videoRef.current && !interactive) {
         event.preventDefault()
         if (videoRef.current.paused) void videoRef.current.play()
@@ -384,7 +553,7 @@ export function Player({ sessionId, fileIndex, resumePositionSec, title, theme, 
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [onClose, audioMenuOpen])
 
   // Stop the HLS transcoder when the player closes, and stop the video.
   useEffect(() => {
@@ -397,24 +566,102 @@ export function Player({ sessionId, fileIndex, resumePositionSec, title, theme, 
     <div
       ref={containerRef}
       className="fixed inset-0 z-50 flex flex-col bg-black"
-      onDoubleClick={() => void containerRef.current?.requestFullscreen()}
+      onDoubleClick={() => {
+        const container = containerRef.current
+        if (document.fullscreenElement) void document.exitFullscreen()
+        else void container?.requestFullscreen()
+      }}
+      title="Double-click or F for fullscreen"
     >
       <div className="flex h-12 shrink-0 items-center gap-3 bg-ink-900 px-4">
-        <span className="text-sm font-medium text-mist-100">Player</span>
+        <span className="max-w-[50%] truncate text-sm font-medium text-mist-100" title={title ?? 'Player'}>
+          {title ?? 'Player'}
+        </span>
         {status && <span className="text-xs text-mist-400">{status}</span>}
         <div className="ml-auto flex items-center gap-1.5">
-          {onStop && (
+          {audioTracks && audioTracks.length > 1 && (
+            <div className="relative">
+              <button
+                onClick={() => setAudioMenuOpen((open) => !open)}
+                title="Audio language"
+                aria-label="Audio language"
+                aria-expanded={audioMenuOpen}
+                className="flex items-center gap-1.5 rounded-lg border border-ink-600 bg-ink-800 p-1.5 text-mist-400 transition-colors hover:text-mist-100"
+              >
+                <Volume2 size={16} />
+              </button>
+              {audioMenuOpen && (
+                <>
+                  <button
+                    className="fixed inset-0 z-0 cursor-default"
+                    aria-label="Close audio menu"
+                    onClick={() => setAudioMenuOpen(false)}
+                  />
+                  <div
+                    role="menu"
+                    aria-label="Audio language"
+                    className="absolute right-0 top-full z-10 mt-2 w-64 overflow-hidden rounded-lg border border-ink-600 bg-ink-800 shadow-xl"
+                  >
+                    <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-mist-400">
+                      Audio language
+                    </div>
+                    {audioTracks.map((track) => {
+                      const active =
+                        track.index ===
+                        (selectedAudio ?? audioTracks.find((t) => t.isDefault)?.index ?? 0)
+                      return (
+                        <button
+                          key={track.index}
+                          role="menuitemradio"
+                          aria-checked={active}
+                          onClick={() => selectAudioTrack(track)}
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-ink-700"
+                        >
+                          <span className="flex w-4 shrink-0 justify-center text-accent-500">
+                            {active && <Check size={13} />}
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block truncate text-xs text-mist-100">
+                              {audioLanguageLabel(track)}
+                            </span>
+                            {audioDetail(track) && (
+                              <span className="block text-[10px] text-mist-400">
+                                {audioDetail(track)}
+                              </span>
+                            )}
+                          </span>
+                        </button>
+                      )
+                    })}
+                    <div className="border-t border-ink-700 px-3 py-1.5 text-[10px] text-mist-400">
+                      Switching re-starts the stream in the chosen language.
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          {onStop && !isLocalPlayback && (
             <button
               onClick={() => {
+                if (!stopArmed) {
+                  setStopArmed(true)
+                  return
+                }
+                setStopArmed(false)
                 void api.streamStop(sessionId)
                 onStop()
               }}
-              title="Stop download and close player"
-              aria-label="Stop download"
-              className="flex items-center gap-1.5 rounded-lg border border-bad-500/40 bg-bad-500/10 px-2 py-1.5 text-xs text-bad-500 transition-colors hover:bg-bad-500/20"
+              title={stopArmed ? 'Click again to stop this download' : 'Stop download and close player'}
+              aria-label={stopArmed ? 'Confirm stop download' : 'Stop download'}
+              className={`flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs transition-colors ${
+                stopArmed
+                  ? 'border-bad-500 bg-bad-500/25 font-medium text-bad-500'
+                  : 'border-bad-500/40 bg-bad-500/10 text-bad-500 hover:bg-bad-500/20'
+              }`}
             >
               <Octagon size={13} fill="currentColor" />
-              Stop
+              {stopArmed ? 'Stop?' : 'Stop'}
             </button>
           )}
           <button
@@ -469,12 +716,18 @@ export function Player({ sessionId, fileIndex, resumePositionSec, title, theme, 
                     setError(null)
                     setUrl(null)
                     void api
-                      .streamStart({ sessionId, fileIndex, forceTranscode: true })
+                      .streamStart({
+                        sessionId,
+                        fileIndex,
+                        forceTranscode: true,
+                        audioTrack: selectedAudio ?? undefined
+                      })
                       .then((target) => {
                         setMode(target.mode)
                         setUrl(target.url)
                         setCanForceTranscode(false)
                       })
+                      .catch((err) => setError((err as Error).message))
                   }}
                   className="mt-3 rounded-lg bg-accent-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-500"
                 >

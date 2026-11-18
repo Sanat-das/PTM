@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Clapperboard, Download, ExternalLink, Octagon, Pause, Play, Star, Users } from 'lucide-react'
+import { Clapperboard, Download, ExternalLink, Loader2, Octagon, Pause, Play, Star, Users } from 'lucide-react'
 import { formatBytes, formatCount } from '../../../shared/filters.ts'
 import type { TorrentStatus } from '../../../shared/ipc.ts'
 import type { TorrentResult } from '../../../shared/types.ts'
@@ -9,6 +9,7 @@ import { useUiStore } from '../lib/store.ts'
 
 interface DetailPanelProps {
   onPlay: (result: TorrentResult) => void
+  onDownload: (result: TorrentResult) => void | Promise<void>
   session: TorrentStatus | null
   error: string | null
   onPickFile: (sessionId: string, fileIndex: number) => void
@@ -19,6 +20,7 @@ interface DetailPanelProps {
 
 export function DetailPanel({
   onPlay,
+  onDownload,
   session,
   error,
   onPickFile,
@@ -27,6 +29,7 @@ export function DetailPanel({
   pendingResult
 }: DetailPanelProps) {
   const selected = useUiStore((state) => state.selected)
+  const [downloading, setDownloading] = useState(false)
 
   const metadataQuery = useQuery({
     queryKey: ['metadata', selected?.release.title, selected?.release.year, selected?.imdbId],
@@ -88,13 +91,32 @@ export function DetailPanel({
 
         {selected && (
           <>
-            <button
-              onClick={() => onPlay(selected)}
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-accent-600 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-500"
-            >
-              <Play size={15} fill="currentColor" />
-              Play now
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => onPlay(selected)}
+                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-accent-600 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-500"
+              >
+                <Play size={15} fill="currentColor" />
+                Play now
+              </button>
+              <button
+                onClick={() => {
+                  setDownloading(true)
+                  void Promise.resolve(onDownload(selected))
+                    .catch(() => {
+                      // The hook already toasted; just reset the spinner.
+                    })
+                    .finally(() => setDownloading(false))
+                }}
+                disabled={downloading}
+                title="Download without playing"
+                aria-label="Download without playing"
+                aria-busy={downloading}
+                className="flex items-center justify-center rounded-lg border border-accent-600/60 bg-accent-600/10 px-3 text-accent-400 transition-colors hover:border-accent-500 hover:bg-accent-600/20 hover:text-accent-500 disabled:cursor-wait disabled:opacity-60"
+              >
+                {downloading ? <Loader2 size={16} className="spin" /> : <Download size={16} />}
+              </button>
+            </div>
 
             <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 rounded-lg border border-ink-700 bg-ink-800 p-3 text-xs">
               <Detail label="Provider" value={selected.providerLabel} />
@@ -108,7 +130,7 @@ export function DetailPanel({
               {selected.imdbId && <Detail label="IMDb" value={selected.imdbId} />}
             </dl>
 
-            <p className="break-all font-mono text-[10px] leading-relaxed text-mist-400/70">
+            <p className="break-all font-mono text-[10px] leading-relaxed text-mist-400/70" title={selected.name}>
               {selected.name}
             </p>
           </>
@@ -164,6 +186,8 @@ export function DetailPanel({
 /** Backdrop that disappears entirely when the TMDB image 404s. */
 function BannerImage({ src }: { src: string }) {
   const [failed, setFailed] = useState(false)
+  // Reset the failure latch when a different backdrop is selected.
+  useEffect(() => setFailed(false), [src])
   if (failed) return null
   return (
     <div className="relative h-52 w-full shrink-0 overflow-hidden">
@@ -223,7 +247,7 @@ function SessionPanel({
         </span>
       </div>
 
-      {session.progress > 0 && (
+      {session.state !== 'complete' && session.state !== 'error' && (
         <div className="mt-2 flex items-center gap-2">
           <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-ink-600">
             <div
@@ -286,7 +310,7 @@ function SessionPanel({
               className="flex items-center gap-2 rounded border border-ink-600 bg-ink-850 px-2 py-1.5 text-left text-xs text-mist-200 transition-colors hover:border-accent-500 hover:text-accent-400"
             >
               <Play size={11} fill="currentColor" />
-              <span className="min-w-0 flex-1 truncate">{file.name}</span>
+              <span className="min-w-0 flex-1 truncate" title={file.name}>{file.name}</span>
               <span className="shrink-0 text-[10px] text-mist-400">{formatBytes(file.size)}</span>
             </button>
           ))}
@@ -364,7 +388,7 @@ function Trailers({
               {video.title}
             </div>
             <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-mist-400">
-              <span className="truncate">{video.channel}</span>
+              <span className="truncate" title={video.channel}>{video.channel}</span>
               <span>·</span>
               <span>{formatCount(video.views)} views</span>
               {video.publishedText && (
@@ -392,7 +416,7 @@ function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col">
       <dt className="text-[10px] uppercase tracking-wider text-mist-400">{label}</dt>
-      <dd className="truncate text-mist-200">{value}</dd>
+      <dd className="truncate text-mist-200" title={String(value)}>{value}</dd>
     </div>
   )
 }

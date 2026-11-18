@@ -142,7 +142,7 @@ export function FilterPanel({ results }: FilterPanelProps) {
             id="filter-max-size"
             value={filters.maxSizeGb}
             onChange={(event) => setFilters({ maxSizeGb: Number(event.target.value) })}
-            className="w-full rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs text-mist-100 focus:outline-none"
+            className="w-full rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs text-mist-100 focus:border-accent-500 focus:outline-none"
           >
             <option value={0}>Any size</option>
             <option value={1}>Up to 1 GB</option>
@@ -150,6 +150,28 @@ export function FilterPanel({ results }: FilterPanelProps) {
             <option value={8}>Up to 8 GB</option>
             <option value={20}>Up to 20 GB</option>
             <option value={50}>Up to 50 GB</option>
+          </select>
+        </div>
+
+        <div>
+          <label
+            htmlFor="filter-max-age"
+            className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-mist-400"
+          >
+            Maximum age
+          </label>
+          <select
+            id="filter-max-age"
+            value={filters.maxAgeDays}
+            onChange={(event) => setFilters({ maxAgeDays: Number(event.target.value) })}
+            className="w-full rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs text-mist-100 focus:border-accent-500 focus:outline-none"
+          >
+            <option value={0}>Any age</option>
+            <option value={1}>Up to 1 day</option>
+            <option value={7}>Up to 1 week</option>
+            <option value={30}>Up to 1 month</option>
+            <option value={90}>Up to 3 months</option>
+            <option value={365}>Up to 1 year</option>
           </select>
         </div>
 
@@ -164,7 +186,7 @@ export function FilterPanel({ results }: FilterPanelProps) {
             id="filter-sort"
             value={filters.sort}
             onChange={(event) => setFilters({ sort: event.target.value as never })}
-            className="w-full rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs text-mist-100 focus:outline-none"
+            className="w-full rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs text-mist-100 focus:border-accent-500 focus:outline-none"
           >
             {SORT_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -225,5 +247,5 @@ function Chip({
 }
 
 function Empty({ label }: { label: string }) {
-  return <span className="text-[11px] text-mist-400/70">{label}</span>
+  return <span className="text-[11px] text-mist-400">{label}</span>
 }

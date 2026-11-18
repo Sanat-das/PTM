@@ -1,5 +1,6 @@
 import type {
   AppSettings,
+  AudioTrackInfo,
   DiagnosticResult,
   DownloadsSummary,
   LibraryEntry,
@@ -10,11 +11,14 @@ import type {
   SearchFilters,
   StreamTarget,
   TorrentFile,
-  TorrentResult
+  TorrentResult,
+  SearchSuggestion,
+  DownloadItem
 } from './types.ts'
 
 export const IPC = {
   search: 'ptm:search',
+  searchSuggest: 'ptm:search-suggest',
   providersHealth: 'ptm:providers-health',
   youtubeTrailers: 'ptm:youtube-trailers',
   metadata: 'ptm:metadata',
@@ -25,6 +29,7 @@ export const IPC = {
   torrentStatus: 'ptm:torrent-status',
   streamStart: 'ptm:stream-start',
   streamStop: 'ptm:stream-stop',
+  audioTracks: 'ptm:audio-tracks',
   subtitleUrl: 'ptm:subtitle-url',
   settingsGet: 'ptm:settings-get',
   settingsSet: 'ptm:settings-set',
@@ -36,7 +41,12 @@ export const IPC = {
   diagnostics: 'ptm:diagnostics',
   openExternal: 'ptm:open-external',
   torrentSetPaused: 'ptm:torrent-set-paused',
-  downloadsSummary: 'ptm:downloads-summary'
+  downloadsSummary: 'ptm:downloads-summary',
+  downloadsList: 'ptm:downloads-list',
+  downloadsGet: 'ptm:downloads-get',
+  downloadsScan: 'ptm:downloads-scan',
+  downloadsRemove: 'ptm:downloads-remove',
+  downloadsReveal: 'ptm:downloads-reveal'
 } as const
 
 export interface SearchRequest {
@@ -75,10 +85,13 @@ export interface StreamRequest {
   sessionId: string
   fileIndex: number
   forceTranscode?: boolean
+  /** 0-based audio stream ordinal to select; forces the transcode path. */
+  audioTrack?: number
 }
 
 export interface PtmApi {
   search(request: SearchRequest): Promise<SearchResponse>
+  searchSuggest(query: string): Promise<SearchSuggestion[]>
   providersHealth(): Promise<ProviderHealth[]>
   youtubeTrailers(title: string, year?: number): Promise<YouTubeVideo[]>
   metadata(title: string, year?: number, imdbId?: string): Promise<MediaMetadata | null>
@@ -89,6 +102,8 @@ export interface PtmApi {
   torrentStatus(sessionId: string): Promise<TorrentStatus | null>
   streamStart(request: StreamRequest): Promise<StreamTarget>
   streamStop(sessionId: string): Promise<void>
+  /** Audio streams in a media file, best-effort; empty when probing fails. */
+  audioTracks(sessionId: string, fileIndex: number): Promise<AudioTrackInfo[]>
   /** WebVTT URL for a subtitle file, or null when it cannot be served. */
   subtitleUrl(sessionId: string, fileIndex: number): Promise<string | null>
   settingsGet(): Promise<AppSettings>
@@ -102,6 +117,19 @@ export interface PtmApi {
   openExternal(url: string): Promise<void>
   torrentSetPaused(sessionId: string, paused: boolean): Promise<TorrentStatus | undefined>
   downloadsSummary(): Promise<DownloadsSummary>
+  /** All tracked downloads (active, complete, missing), sorted for display. */
+  downloadsList(): Promise<DownloadItem[]>
+  downloadsGet(id: string): Promise<DownloadItem | null>
+  /** Scan the configured download folder for video files not already tracked. */
+  downloadsScan(): Promise<{ added: number; skipped: number }>
+  /** Remove an item from the library; optionally delete the video/subtitle files from disk. */
+  downloadsRemove(
+    id: string,
+    deleteFiles: boolean
+  ): Promise<{ deleted: number; failed: string[] }>
+  /** Reveal the primary video file in the OS file manager. */
+  downloadsReveal(id: string): Promise<boolean>
+  onDownloadComplete(cb: (item: DownloadItem) => void): () => void
   onTorrentStatus(cb: (status: TorrentStatus) => void): () => void
   onDownloadsSummary(cb: (summary: DownloadsSummary) => void): () => void
 }

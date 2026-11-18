@@ -11,7 +11,7 @@ import type {
   EngineSession,
   TorrentEngine
 } from './types.ts'
-import { extensionOf, isSubtitleFile, isVideoFile } from './types.ts'
+import { extensionOf, isSubtitleFile, isVideoFile, resolveInside } from './types.ts'
 
 interface WebTorrentClient {
   add: (input: string, opts?: Record<string, unknown>) => unknown
@@ -22,6 +22,8 @@ interface WebTorrentClient {
 interface WebTorrentTorrent {
   infoHash?: string
   name?: string
+  /** Directory the torrent's files are written into. */
+  path?: string
   files: Array<{ name: string; path: string; length: number }>
   progress: number
   downloadSpeed: number
@@ -47,6 +49,7 @@ export class BuiltinEngine implements TorrentEngine {
   private clientPromise: Promise<WebTorrentClient> | null = null
   private torrents = new Map<string, WebTorrentTorrent>()
   private sessions = new Map<string, EngineSession>()
+  private watchdogs = new Map<string, NodeJS.Timeout>()
   private listeners = new Set<(session: EngineSession) => void>()
   private statusTimer: NodeJS.Timeout | null = null
 
@@ -87,7 +90,12 @@ export class BuiltinEngine implements TorrentEngine {
 
       this.client = client
       return client
-    })()
+      // Never cache a rejected promise — otherwise one transient import/
+      // construction failure permanently disables the engine.
+    })().catch((error: unknown) => {
+      this.clientPromise = null
+      throw error
+    })
 
     return this.clientPromise
   }
@@ -143,11 +151,17 @@ export class BuiltinEngine implements TorrentEngine {
     this.torrents.set(sessionId, torrent)
 
     torrent.on('metadata', () => {
+      // Metadata is in — the hung-swarm watchdog is no longer needed.
+      const watchdog = this.watchdogs.get(sessionId)
+      if (watchdog) {
+        clearTimeout(watchdog)
+        this.watchdogs.delete(sessionId)
+      }
       const current = this.sessions.get(sessionId)
       if (!current) return
       current.infoHash = torrent.infoHash
       current.name = torrent.name ?? current.name
-      current.files = torrent.files.map((file, index) => toEngineFile(file, index))
+      current.files = torrent.files.map((file, index) => toEngineFile(file, index, torrent.path))
       current.state = torrent.progress >= 1 ? 'complete' : 'ready'
       this.emit(current)
     })
@@ -165,8 +179,9 @@ export class BuiltinEngine implements TorrentEngine {
     })
 
     // A swarm that never answers is indistinguishable from a hung spinner,
-    // so surface it as an error the UI can act on.
-    setTimeout(() => {
+    // so surface it as an error the UI can act on. Cleared once metadata
+    // arrives or the torrent is removed.
+    const watchdog = setTimeout(() => {
       const current = this.sessions.get(sessionId)
       if (!current) return
       if (current.state !== 'fetching-metadata' || current.paused) return
@@ -175,6 +190,8 @@ export class BuiltinEngine implements TorrentEngine {
         'Could not reach any peers for this torrent. Trackers may be blocked on this network (run Diagnostics to check). If indexes and trackers show red, enable the proxy in Settings → Network proxy — it tunnels the torrent engine’s TCP traffic.'
       this.emit(current)
     }, 45_000)
+    watchdog.unref?.()
+    this.watchdogs.set(sessionId, watchdog)
 
     this.startStatusTimer()
     this.emit(session)
@@ -218,6 +235,11 @@ export class BuiltinEngine implements TorrentEngine {
   }
 
   async remove(sessionId: string): Promise<void> {
+    const watchdog = this.watchdogs.get(sessionId)
+    if (watchdog) {
+      clearTimeout(watchdog)
+      this.watchdogs.delete(sessionId)
+    }
     const torrent = this.torrents.get(sessionId)
     if (torrent) {
       await new Promise<void>((resolve) => {
@@ -316,14 +338,21 @@ export class BuiltinEngine implements TorrentEngine {
       await new Promise<void>((resolve) => this.client?.destroy(() => resolve()))
       this.client = null
     }
+    this.clientPromise = null
   }
 }
 
 function toEngineFile(
   file: { name: string; path: string; length: number },
-  index: number
+  index: number,
+  baseDir?: string
 ): EngineFile {
-  const fullPath = file.path || file.name
+  const relativePath = file.path || file.name
+  // EngineFile.path must be absolute so the downloads library can reference
+  // (and reveal/delete) files on disk without knowing the download root.
+  // Torrent file lists are attacker-controlled, so clamp anything that
+  // escapes the download root instead of trusting it.
+  const fullPath = baseDir ? resolveInside(baseDir, relativePath) : relativePath
   const ext = extensionOf(fullPath)
   return {
     index,

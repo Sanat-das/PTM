@@ -10,6 +10,8 @@ export interface TranscodeOptions {
   videoCodec?: string
   crf?: number
   preset?: string
+  /** 0-based audio stream ordinal to select; defaults to ffmpeg's pick. */
+  audioIndex?: number
   onExit?: (code: number | null) => void
   onError?: (error: Error) => void
 }
@@ -21,7 +23,7 @@ export interface TranscodeResult {
   stderr: () => string
 }
 
-function resolveFfmpeg(): string {
+export function resolveFfmpeg(): string {
   const candidate = ffmpegPath as unknown as string | null
   if (!candidate) return 'ffmpeg'
   // Packaged builds keep the binary outside the asar archive; spawning a path
@@ -50,6 +52,9 @@ export function startHlsTranscode(options: TranscodeOptions): TranscodeResult {
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0.0.0',
     '-i',
     options.sourceUrl,
+    // An explicit audio selection must force explicit mapping — ffmpeg's
+    // default pick ignores which track the user asked for.
+    ...(options.audioIndex !== undefined ? ['-map', '0:v:0?', '-map', `0:a:${options.audioIndex}`] : []),
     '-c:v',
     'libx264',
     '-preset',

@@ -10,3 +10,6 @@ release-v4/
 *.log
 .DS_Store
 .vite/
+release-v5/
+release-v6/
+release-v7/

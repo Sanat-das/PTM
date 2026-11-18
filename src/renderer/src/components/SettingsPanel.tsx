@@ -14,6 +14,30 @@ const PROVIDER_NAMES: Record<string, string> = {
   eztv: 'EZTV'
 }
 
+const PREFERRED_AUDIO_LANGUAGES: Array<{ value: string; label: string }> = [
+  { value: 'eng', label: 'English' },
+  { value: 'jpn', label: 'Japanese' },
+  { value: 'spa', label: 'Spanish' },
+  { value: 'fra', label: 'French' },
+  { value: 'deu', label: 'German' },
+  { value: 'ita', label: 'Italian' },
+  { value: 'rus', label: 'Russian' },
+  { value: 'kor', label: 'Korean' },
+  { value: 'chi', label: 'Chinese' },
+  { value: 'por', label: 'Portuguese' },
+  { value: 'ara', label: 'Arabic' },
+  { value: 'hin', label: 'Hindi' },
+  { value: 'pol', label: 'Polish' },
+  { value: 'tur', label: 'Turkish' },
+  { value: 'dut', label: 'Dutch' },
+  { value: 'swe', label: 'Swedish' },
+  { value: 'vie', label: 'Vietnamese' },
+  { value: 'tha', label: 'Thai' },
+  { value: 'ind', label: 'Indonesian' },
+  { value: 'heb', label: 'Hebrew' },
+  { value: 'ukr', label: 'Ukrainian' }
+]
+
 export function SettingsPanel() {
   const setPanel = useUiStore((state) => state.setPanel)
   const queryClient = useQueryClient()
@@ -24,6 +48,27 @@ export function SettingsPanel() {
   // Raw textarea text for trackers — kept separate so Enter produces a real
   // newline instead of being stripped by the parse-then-join round trip.
   const [trackersText, setTrackersText] = useState('')
+  const [discardArmed, setDiscardArmed] = useState(false)
+  const savedSnapshot = useRef<string | null>(null)
+
+  const dirty = Boolean(
+    draft && savedSnapshot.current !== null && JSON.stringify(draft) !== savedSnapshot.current
+  )
+
+  // Closing with unsaved changes needs one extra nudge; closing clean just works.
+  const closeWithGuard = () => {
+    if (!dirty) {
+      setPanel('none')
+      return
+    }
+    if (!discardArmed) {
+      setDiscardArmed(true)
+      toast.warning('Unsaved changes', { description: 'Click again to discard them.' })
+      window.setTimeout(() => setDiscardArmed(false), 4000)
+      return
+    }
+    setPanel('none')
+  }
 
   const load = () => {
     setLoadError(null)
@@ -32,6 +77,7 @@ export function SettingsPanel() {
       .then((loaded) => {
         setDraft(loaded)
         setTrackersText(loaded.trackers.join('\n'))
+        savedSnapshot.current = JSON.stringify(loaded)
       })
       .catch((error: Error) => setLoadError(error.message))
     void api.defaultDownloads().then(setDefaultDownloads).catch(() => undefined)
@@ -43,7 +89,7 @@ export function SettingsPanel() {
 
   if (loadError) {
     return (
-      <Overlay onClose={() => setPanel('none')} label="Settings">
+      <Overlay onClose={closeWithGuard} label="Settings">
         <div className="p-6 text-sm">
           <p className="text-mist-100">Could not load settings: {loadError}</p>
           <button
@@ -59,7 +105,7 @@ export function SettingsPanel() {
 
   if (!draft) {
     return (
-      <Overlay onClose={() => setPanel('none')} label="Settings">
+      <Overlay onClose={closeWithGuard} label="Settings">
         <div className="p-6 text-sm text-mist-400">Loading settings…</div>
       </Overlay>
     )
@@ -77,6 +123,7 @@ export function SettingsPanel() {
       const saved = await api.settingsSet({ ...draft, trackers })
       setDraft(saved)
       setTrackersText(saved.trackers.join('\n'))
+      savedSnapshot.current = JSON.stringify(saved)
       // The header engine toggle and the search pipeline read the same cache.
       await queryClient.invalidateQueries({ queryKey: ['settings'] })
       toast.success('Settings saved')
@@ -88,11 +135,11 @@ export function SettingsPanel() {
   }
 
   return (
-    <Overlay onClose={() => setPanel('none')} label="Settings">
+    <Overlay onClose={closeWithGuard} label="Settings">
       <header className="flex items-center border-b border-ink-700 px-5 py-3">
         <h2 className="text-sm font-semibold text-mist-100">Settings</h2>
         <button
-          onClick={() => setPanel('none')}
+          onClick={closeWithGuard}
           aria-label="Close settings"
           className="ml-auto rounded p-1 text-mist-400 hover:bg-ink-700 hover:text-mist-100"
         >
@@ -123,6 +170,7 @@ export function SettingsPanel() {
               onChange={(event) =>
                 patch({ proxy: { ...draft.proxy, type: event.target.value as ProxyType } })
               }
+              aria-label="Proxy type"
               className="rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs"
             >
               <option value="http">HTTP</option>
@@ -132,19 +180,28 @@ export function SettingsPanel() {
               value={draft.proxy.host}
               onChange={(event) => patch({ proxy: { ...draft.proxy, host: event.target.value } })}
               placeholder="127.0.0.1"
+              aria-label="Proxy host"
               className="w-40 rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs"
             />
             <input
               value={draft.proxy.port}
               type="number"
-              onChange={(event) => patch({ proxy: { ...draft.proxy, port: Number(event.target.value) } })}
+              onChange={(event) => {
+                const port = Number(event.target.value)
+                patch({ proxy: { ...draft.proxy, port: Number.isFinite(port) ? port : 0 } })
+              }}
               placeholder="7890"
+              aria-label="Proxy port"
+              min={0}
+              max={65535}
               className="w-24 rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs"
             />
             <input
               value={draft.proxy.username ?? ''}
               onChange={(event) => patch({ proxy: { ...draft.proxy, username: event.target.value } })}
               placeholder="username"
+              aria-label="Proxy username"
+              autoComplete="off"
               className="w-32 rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs"
             />
             <input
@@ -152,6 +209,8 @@ export function SettingsPanel() {
               type="password"
               onChange={(event) => patch({ proxy: { ...draft.proxy, password: event.target.value } })}
               placeholder="password"
+              aria-label="Proxy password"
+              autoComplete="new-password"
               className="w-32 rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs"
             />
           </div>
@@ -186,11 +245,13 @@ export function SettingsPanel() {
         </Section>
 
         <Section title="Metadata">
-          <label className="mb-1 block text-xs text-mist-200">TMDB API key (optional)</label>
+          <label htmlFor="tmdb-api-key" className="mb-1 block text-xs text-mist-200">TMDB API key (optional)</label>
           <input
+            id="tmdb-api-key"
             value={draft.tmdbApiKey ?? ''}
             onChange={(event) => patch({ tmdbApiKey: event.target.value || undefined })}
             placeholder="Paste your api.themoviedb.org key"
+            autoComplete="off"
             className="w-full rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 font-mono text-xs"
           />
           <p className="mt-1 text-[11px] text-mist-400">
@@ -199,6 +260,10 @@ export function SettingsPanel() {
         </Section>
 
         <Section title="qBittorrent">
+          <p className="mb-1.5 text-[11px] text-mist-400">
+            qBittorrent only takes over when you switch the engine in the top bar — the
+            built-in engine stays the default.
+          </p>
           <div className="flex flex-wrap items-center gap-2">
             <input
               value={draft.qbittorrent.url}
@@ -206,6 +271,7 @@ export function SettingsPanel() {
                 patch({ qbittorrent: { ...draft.qbittorrent, url: event.target.value } })
               }
               placeholder="http://127.0.0.1:8080"
+              aria-label="qBittorrent Web UI URL"
               className="w-56 rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs"
             />
             <input
@@ -214,6 +280,8 @@ export function SettingsPanel() {
                 patch({ qbittorrent: { ...draft.qbittorrent, username: event.target.value } })
               }
               placeholder="username"
+              aria-label="qBittorrent username"
+              autoComplete="off"
               className="w-32 rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs"
             />
             <input
@@ -223,6 +291,8 @@ export function SettingsPanel() {
                 patch({ qbittorrent: { ...draft.qbittorrent, password: event.target.value } })
               }
               placeholder="password"
+              aria-label="qBittorrent password"
+              autoComplete="new-password"
               className="w-32 rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs"
             />
           </div>
@@ -234,7 +304,7 @@ export function SettingsPanel() {
           </label>
           <div className="flex items-center gap-2">
             <input
-              value={draft.downloadDir || defaultDownloadsLabel}
+              value={draft.downloadDir ?? ''}
               onChange={(event) => patch({ downloadDir: event.target.value || undefined })}
               placeholder={defaultDownloadsLabel}
               className="min-w-0 flex-1 rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 font-mono text-xs text-mist-200"
@@ -242,7 +312,7 @@ export function SettingsPanel() {
             <button
               onClick={async () => {
                 const picked = await api.pickDirectory(draft.downloadDir || undefined)
-                if (picked) setDraft({ ...draft, downloadDir: picked })
+                if (picked) setDraft((current) => (current ? { ...current, downloadDir: picked } : current))
               }}
               className="shrink-0 rounded-md border border-ink-600 bg-ink-800 px-2.5 py-1.5 text-xs text-mist-200 transition-colors hover:border-ink-500 hover:text-mist-100"
             >
@@ -278,15 +348,37 @@ export function SettingsPanel() {
             Pauses the player when you minimize the window and resumes when you come back. Playback
             you paused yourself stays paused.
           </p>
+          <label className="mb-1 mt-3 block text-xs text-mist-200">
+            Preferred audio language
+          </label>
+          <select
+            value={draft.preferredAudioLanguage ?? ''}
+            onChange={(event) =>
+              patch({ preferredAudioLanguage: event.target.value || undefined })
+            }
+            className="rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs text-mist-200"
+          >
+            <option value="">No preference (file default)</option>
+            {PREFERRED_AUDIO_LANGUAGES.map((language) => (
+              <option key={language.value} value={language.value}>
+                {language.label}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-[11px] text-mist-400">
+            When a file has a matching audio track, it is selected automatically (the stream is
+            transcoded in that language). Picking a track in the player updates this too.
+          </p>
         </Section>
       </div>
 
       <footer className="flex items-center gap-2 border-t border-ink-700 px-5 py-3">
         <button
           onClick={() => {
-            setDraft({ ...DEFAULT_SETTINGS })
+            setDraft(structuredClone(DEFAULT_SETTINGS))
             setTrackersText(DEFAULT_SETTINGS.trackers.join('\n'))
           }}
+          title="Reset the form to default values — press Save to keep them"
           className="rounded-lg border border-ink-600 bg-ink-800 px-3 py-1.5 text-xs text-mist-200 hover:text-mist-100"
         >
           Reset to defaults
@@ -325,18 +417,46 @@ export function Overlay({
   label?: string
 }) {
   const panelRef = useRef<HTMLDivElement>(null)
+  const previousFocus = useRef<HTMLElement | null>(null)
 
-  // Escape closes the overlay; the panel takes focus on open so keyboard
-  // users land inside it.
+  // Focus management: land focus inside on open, trap Tab/Shift+Tab within
+  // the dialog, and restore focus to whatever opened it on close.
+  useEffect(() => {
+    previousFocus.current = document.activeElement as HTMLElement | null
+    panelRef.current?.focus()
+    return () => previousFocus.current?.focus?.()
+  }, [])
+
+  // Escape closes the overlay; Tab cycles within it.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.stopPropagation()
+        event.preventDefault()
         onClose()
+        return
+      }
+      if (event.key !== 'Tab') return
+      const panel = panelRef.current
+      if (!panel) return
+      const focusable = panel.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
+      )
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const active = document.activeElement as HTMLElement | null
+      if (event.shiftKey) {
+        if (!active || active === first || !panel.contains(active)) {
+          event.preventDefault()
+          last.focus()
+        }
+      } else if (!active || active === last || !panel.contains(active)) {
+        event.preventDefault()
+        first.focus()
       }
     }
     window.addEventListener('keydown', onKey, true)
-    panelRef.current?.focus()
     return () => window.removeEventListener('keydown', onKey, true)
   }, [onClose])
 

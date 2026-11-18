@@ -1,4 +1,5 @@
 import type { Readable } from 'node:stream'
+import path from 'node:path'
 
 export interface EngineFile {
   index: number
@@ -42,7 +43,8 @@ export interface EngineAddInput {
 }
 
 export interface TorrentEngine {
-  readonly id: 'builtin' | 'qbittorrent'
+  /** Built-in/qBittorrent engines, plus a synthetic one that serves completed downloads from disk. */
+  readonly id: 'builtin' | 'qbittorrent' | 'local'
   readonly label: string
   /** Pause or resume a single torrent. */
   setPaused(sessionId: string, paused: boolean): Promise<EngineSession | undefined>
@@ -84,11 +86,44 @@ export const VIDEO_EXTENSIONS = new Set([
 
 export const SUBTITLE_EXTENSIONS = new Set(['srt', 'sub', 'ass', 'ssa', 'vtt', 'idx', 'smi', 'sup'])
 
+/**
+ * Resolve `relativePath` against `baseDir`, keeping the result inside it.
+ * Torrent file lists are attacker-controlled: absolute or `..`-escaping
+ * entries are clamped to the basename inside the root so downstream sinks
+ * (reveal/delete/stream) can never reach outside it.
+ */
+export function resolveInside(baseDir: string, relativePath: string): string {
+  const base = path.resolve(baseDir)
+  const resolved = path.resolve(base, relativePath)
+  const rel = path.relative(base, resolved)
+  if (rel === '') return resolved
+  if (!rel.startsWith('..') && !path.isAbsolute(rel)) return resolved
+  // Take the final segment on either separator so Windows-style paths clamp
+  // correctly on any host platform.
+  const baseName = relativePath.split(/[\\/]/).filter(Boolean).pop() || 'file'
+  return path.join(base, baseName.replace(/^\.+$/, 'file'))
+}
+
+/**
+ * Strip drive prefixes, leading slashes and `..` segments from a torrent's
+ * relative file path. Used when no base directory is known yet (paths are
+ * re-joined against the save path later).
+ */
+export function sanitizeRelativePath(relativePath: string): string {
+  const segments = relativePath
+    .split(/[\\/]+/)
+    .filter((seg) => seg && seg !== '.' && seg !== '..' && !/^[a-zA-Z]:/.test(seg))
+  return segments.join(path.sep)
+}
+
 export function extensionOf(name: string): string {
   const clean = name.split('?')[0]
-  const dot = clean.lastIndexOf('.')
+  // Only the final path segment carries an extension — a dotted directory
+  // name ("My.Movies/Movie") has none.
+  const base = clean.split(/[\\/]/).pop() ?? ''
+  const dot = base.lastIndexOf('.')
   if (dot === -1) return ''
-  return clean.slice(dot + 1).toLowerCase()
+  return base.slice(dot + 1).toLowerCase()
 }
 
 export function isVideoFile(name: string): boolean {
@@ -99,5 +134,5 @@ export function isSubtitleFile(name: string): boolean {
   return SUBTITLE_EXTENSIONS.has(extensionOf(name))
 }
 
-/** Containers the browser can play without a transcode. */
-export const BROWSER_PLAYABLE_EXTENSIONS = new Set(['mp4', 'webm', 'm4v', 'mov'])
+/** Containers the browser plays directly without a transcode. */
+export const BROWSER_PLAYABLE_EXTENSIONS = new Set(['mp4', 'webm', 'm4v'])

@@ -21,8 +21,10 @@ export function DiagnosticsPanel() {
         <h2 className="text-sm font-semibold text-mist-100">Network diagnostics</h2>
         <button
           onClick={() => void diagnostics.refetch()}
-          className="ml-auto rounded-lg border border-ink-600 bg-ink-800 px-2.5 py-1 text-xs text-mist-200 hover:text-mist-100"
+          disabled={diagnostics.isFetching}
+          className="ml-auto flex items-center gap-1.5 rounded-lg border border-ink-600 bg-ink-800 px-2.5 py-1 text-xs text-mist-200 hover:text-mist-100 disabled:opacity-60"
         >
+          {diagnostics.isFetching && <Loader2 size={12} className="spin" />}
           Re-run
         </button>
       </header>
@@ -55,7 +57,7 @@ export function DiagnosticsPanel() {
             {result.ok ? (
               <CheckCircle2 size={15} className="shrink-0 text-good-500" />
             ) : (
-              <XCircle size={15} className="shrink-0 text-bad-500/80" />
+              <XCircle size={15} className="shrink-0 text-bad-500" />
             )}
             <div className="min-w-0 flex-1">
               <div className="text-xs text-mist-100">{result.name}</div>
@@ -64,6 +66,15 @@ export function DiagnosticsPanel() {
             <span className="shrink-0 font-mono text-[10px] text-mist-400">{result.durationMs}ms</span>
           </div>
         ))}
+
+        {diagnostics.data && (
+          <div className="flex items-center gap-2 pt-1 text-[11px] text-mist-400">
+            <span className="font-medium text-mist-200">
+              {diagnostics.data.filter((r) => r.ok).length}/{diagnostics.data.length} reachable
+            </span>
+            <span>· indexes marked red are blocked or unreachable from this machine</span>
+          </div>
+        )}
 
         {diagnostics.data && (
           <p className="pt-3 text-[11px] leading-relaxed text-mist-400">

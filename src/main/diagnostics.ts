@@ -30,14 +30,17 @@ function parseTracker(url: string): { host: string; port: number } | null {
 
 export async function runDiagnostics(): Promise<DiagnosticResult[]> {
   const results: DiagnosticResult[] = []
-  const proxy = settings.get().proxy
+  const current = settings.get()
+  const proxy = current.proxy
+  // Match every other call site: pass the proxy only when enabled.
+  const enabledProxy = proxy.enabled ? proxy : undefined
 
   // 1. Index providers
   const providerChecks = await Promise.all(
     providers.map(async (provider) => {
       const started = Date.now()
       try {
-        const health = await provider.health({ proxy })
+        const health = await provider.health({ proxy: enabledProxy })
         return {
           name: `Index: ${provider.name}`,
           ok: health.reachable,
@@ -102,7 +105,7 @@ export async function runDiagnostics(): Promise<DiagnosticResult[]> {
     const started = Date.now()
     try {
       const body = await httpText('https://www.youtube.com/results?search_query=ptm', {
-        proxy,
+        proxy: enabledProxy,
         timeout: 12000
       })
       results.push({

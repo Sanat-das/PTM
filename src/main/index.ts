@@ -7,6 +7,7 @@ import { installProxyTunnel, removeProxyTunnel } from './net/tunnel.ts'
 import { setUserDataDir } from './app-paths.ts'
 import { settings } from './settings.ts'
 import { library } from './library.ts'
+import { downloads } from './downloads.ts'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -59,6 +60,16 @@ function createWindow(): void {
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
     return { action: 'deny' }
+  })
+
+  // Never let the window navigate away from the app itself; openExternal
+  // above is the only way out for new content. The initial load (dev server
+  // or the bundled file) is allowed through.
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const devUrl = process.env.ELECTRON_RENDERER_URL
+    const allowed =
+      (devUrl && url.startsWith(devUrl)) || url.startsWith('file://')
+    if (!allowed) event.preventDefault()
   })
 
   const devUrl = process.env.ELECTRON_RENDERER_URL
@@ -118,6 +129,7 @@ app.on('before-quit', (event) => {
   void (async () => {
     settings.flush()
     library.flush()
+    downloads.flush()
     try {
       await engineManager.destroy()
     } catch (error) {

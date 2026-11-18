@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { applyFilters } from '../../shared/filters.ts'
 import { DEFAULT_FILTERS, type TorrentResult } from '../../shared/types.ts'
 import { api } from './lib/api.ts'
+import { toast } from 'sonner'
 import { useUiStore } from './lib/store.ts'
 import { DetailPanel } from './components/DetailPanel.tsx'
 import { DiagnosticsPanel } from './components/DiagnosticsPanel.tsx'
@@ -18,11 +19,12 @@ export default function App() {
   const { submitted, filters, panel, player, closePlayer } = useUiStore()
   const [pendingResult, setPendingResult] = useState<TorrentResult | null>(null)
   const autoOpenedRef = useRef<string | null>(null)
-  const { session, error, start, reset, pickFile, stopTorrent, setPaused, resumeFromLibrary } =
+  const { session, error, start, download, reset, pickFile, stopTorrent, setPaused, resumeFromLibrary } =
     useTorrentSession()
 
   const themeKey = filters.themes.join(',')
   const queryClient = useQueryClient()
+  const [enginePending, setEnginePending] = useState(false)
 
   const searchQuery = useQuery({
     queryKey: ['search', submitted, themeKey],
@@ -62,11 +64,23 @@ export default function App() {
   )
 
   // Stop the download AND clear the pending state, otherwise the row
-  // spinner never stops spinning.
+  // spinner never stops spinning. A disk-played download has no live engine
+  // session of its own (activeSessionId is null), so stopTorrent is a no-op
+  // and we just close.
   const handleStop = useCallback(async () => {
     setPendingResult(null)
-    await stopTorrent()
-  }, [stopTorrent])
+    if (session) {
+      await stopTorrent()
+    }
+  }, [stopTorrent, session])
+
+  // Toast when a download completes and refresh the library panel.
+  useEffect(() => {
+    return api.onDownloadComplete((item) => {
+      toast.success(`Finished downloading “${item.title}”`)
+      void queryClient.invalidateQueries({ queryKey: ['downloads'] })
+    })
+  }, [queryClient])
 
   // Once metadata arrives and the torrent has exactly one video file, play it.
   // Only once per session: closing the player must not reopen it.
@@ -99,15 +113,20 @@ export default function App() {
         onOpenLibrary={() => useUiStore.getState().setPanel('library')}
         onOpenDiagnostics={() => useUiStore.getState().setPanel('diagnostics')}
         engine={settingsQuery.data?.engine ?? 'builtin'}
+        engineDisabled={enginePending}
         onEngineChange={(engine) => {
           // Send only the key being changed — spreading the cached snapshot
           // would clobber concurrent settings edits with stale values.
           void (async () => {
+            setEnginePending(true)
             try {
               await api.settingsSet({ engine })
               await queryClient.invalidateQueries({ queryKey: ['settings'] })
+              toast.success(`Switched to ${engine === 'qbittorrent' ? 'qBittorrent' : 'the built-in engine'}`)
             } catch (error) {
-              console.error('[settings] engine switch failed', (error as Error).message)
+              toast.error(`Could not switch engine: ${(error as Error).message}`)
+            } finally {
+              setEnginePending(false)
             }
           })()
         }}
@@ -131,6 +150,12 @@ export default function App() {
 
         <DetailPanel
           onPlay={handlePlay}
+          onDownload={(result) => {
+            void download(result).catch(() => {
+              // useTorrentSession.download already toasted; swallow so the
+              // call site never leaks an unhandled rejection.
+            })
+          }}
           session={session}
           error={error}
           onPickFile={pickFile}

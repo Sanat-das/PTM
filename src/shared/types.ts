@@ -136,6 +136,28 @@ export interface MediaMetadata {
   yearMatch: boolean
 }
 
+export interface SearchSuggestion {
+  tmdbId: number
+  title: string
+  year?: number
+  kind: 'movie' | 'tv'
+  rating?: number
+}
+
+/** An audio stream inside a media file, as probed by ffmpeg. */
+export interface AudioTrackInfo {
+  /** 0-based ordinal among the file's audio streams (what `-map 0:a:N` uses). */
+  index: number
+  /** ISO 639 tag from the container, e.g. "eng"; undefined when untagged. */
+  language?: string
+  /** "title" metadata, e.g. "Director's commentary". */
+  title?: string
+  /** Codec name as printed by ffmpeg, e.g. "aac", "dts". */
+  codec?: string
+  channels?: number
+  isDefault?: boolean
+}
+
 export interface TorrentFile {
   index: number
   name: string
@@ -170,6 +192,42 @@ export interface PlaybackProgress {
   /** Optional enrichment from the originating search result. */
   theme?: Theme
   imdbId?: string
+}
+
+export type DownloadItemStatus = 'downloading' | 'complete' | 'missing' | 'error' | 'paused'
+
+export interface DownloadItemFile {
+  index: number
+  name: string
+  /** Absolute path on disk. */
+  path: string
+  size: number
+  ext: string
+  isVideo: boolean
+  isSubtitle: boolean
+}
+
+/**
+ * A movie/show tracked by PTM: either an active/finished torrent download or
+ * a file imported from disk. Keyed by infoHash for torrents, or
+ * `file:<sha1 of the path>` for imports.
+ */
+export interface DownloadItem {
+  id: string
+  kind: 'torrent' | 'file'
+  infoHash?: string
+  /** Raw release/file name. */
+  name: string
+  /** Clean title parsed from the name (filename-only matching, no network). */
+  title: string
+  year?: number
+  theme: Theme
+  files: DownloadItemFile[]
+  status: DownloadItemStatus
+  /** 0–1; 1 once the download completes. */
+  progress: number
+  addedAt: number
+  completedAt?: number
 }
 
 export interface LibraryEntry {
@@ -215,6 +273,8 @@ export interface AppSettings {
   autoplayReviews: boolean
   /** Pause the <video> element when the window is minimized; resume on restore. */
   pausePlaybackOnMinimize: boolean
+  /** ISO 639 audio language tag preferred across files, e.g. "eng". */
+  preferredAudioLanguage?: string
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {

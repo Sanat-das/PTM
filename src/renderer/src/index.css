@@ -37,6 +37,16 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+@layer base {
+  /* One consistent focus indicator on every interactive element; components
+     that strip outlines must provide a replacement. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent-400);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+}
+
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -47,7 +57,8 @@ body {
 ::-webkit-scrollbar-thumb {
   background: var(--color-ink-600);
   border-radius: 6px;
-  border: 2px solid var(--color-ink-900);
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-ink-500);
@@ -76,4 +87,19 @@ body {
 
 .spin {
   animation: ptm-spin 0.9s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up,
+  .spin,
+  .animate-pulse {
+    animation: none !important;
+  }
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

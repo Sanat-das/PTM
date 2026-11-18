@@ -79,8 +79,10 @@ export function ResultList({
               <span
                 key={provider.id}
                 title={`${provider.name}: ${provider.reachable ? `${provider.resultCount ?? 0} results` : provider.error ?? 'unreachable'}`}
+                aria-label={`${provider.name}: ${provider.reachable ? 'reachable' : 'unreachable'}`}
+                role="img"
                 className={`h-2 w-2 rounded-full ${
-                  provider.reachable ? 'bg-good-500' : 'bg-bad-500/70'
+                  provider.reachable ? 'bg-good-500' : 'bg-bad-500'
                 }`}
               />
             ))}

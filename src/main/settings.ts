@@ -16,7 +16,7 @@ class SettingsManager {
       pausePlaybackOnMinimize,
       proxy: { ...DEFAULT_SETTINGS.proxy, ...(raw.proxy ?? {}) },
       qbittorrent: { ...DEFAULT_SETTINGS.qbittorrent, ...(raw.qbittorrent ?? {}) },
-      trackers: raw.trackers?.length ? raw.trackers : DEFAULT_SETTINGS.trackers,
+      trackers: Array.isArray(raw.trackers) ? raw.trackers : DEFAULT_SETTINGS.trackers,
       providers: raw.providers ?? {}
     }
     delete (merged as Record<string, unknown>).pauseWhenMinimized
@@ -25,7 +25,16 @@ class SettingsManager {
 
   set(patch: Partial<AppSettings>): AppSettings {
     const next = this.get()
-    this.store.replace({ ...next, ...patch })
+    // Deep-merge nested objects so a partial patch (e.g. { proxy: { enabled: false } })
+    // doesn't reset the untouched fields to the package defaults.
+    const merged = {
+      ...next,
+      ...patch,
+      proxy: { ...next.proxy, ...(patch.proxy ?? {}) },
+      qbittorrent: { ...next.qbittorrent, ...(patch.qbittorrent ?? {}) },
+      providers: patch.providers ? { ...next.providers, ...patch.providers } : next.providers
+    }
+    this.store.replace(merged)
     const value = this.get()
     for (const listener of this.listeners) listener(value)
     return value

@@ -1,4 +1,4 @@
-import type { MediaMetadata, ProxyConfig } from '../../shared/types.ts'
+import type { MediaMetadata, ProxyConfig, SearchSuggestion } from '../../shared/types.ts'
 import { httpJson } from '../net/http.ts'
 import { settings } from '../settings.ts'
 
@@ -43,6 +43,54 @@ interface TmdbDetails {
   genres: Array<{ id: number; name: string }>
 }
 
+/**
+ * Google-style autocomplete suggestions: top movie/TV matches for a partial
+ * query, straight from the multi-search endpoint. Deliberately cheap — no
+ * per-result details calls. Returns [] when no TMDB key is configured or the
+ * query is too short, so the dropdown simply stays closed.
+ */
+export async function fetchSuggestions(
+  query: string,
+  proxy?: ProxyConfig
+): Promise<SearchSuggestion[]> {
+  const apiKey = settings.get().tmdbApiKey
+  if (!apiKey) return []
+
+  const trimmed = query.trim()
+  if (trimmed.length < 2) return []
+
+  try {
+    const params = new URLSearchParams({
+      api_key: apiKey,
+      query: trimmed,
+      include_adult: 'false'
+    })
+    const found = await httpJson<TmdbSearchResponse>(
+      `https://api.themoviedb.org/3/search/multi?${params.toString()}`,
+      { proxy, timeout: 8000 }
+    )
+    return (found.results ?? [])
+      .filter((r) => !r.media_type || r.media_type === 'movie' || r.media_type === 'tv')
+      .slice(0, 6)
+      .map((r) => {
+        const date = r.release_date ?? r.first_air_date
+        const isTv =
+          r.media_type === 'tv' || (!r.release_date && Boolean(r.first_air_date))
+        return {
+          tmdbId: r.id,
+          title: (isTv ? r.name : r.title) ?? r.title ?? r.name ?? trimmed,
+          year: date ? Number(date.slice(0, 4)) || undefined : undefined,
+          kind: isTv ? ('tv' as const) : ('movie' as const),
+          rating: r.vote_average
+        }
+      })
+      .filter((s) => s.title.trim().length > 0)
+  } catch (error) {
+    console.error('[tmdb] suggestion lookup failed', (error as Error).message)
+    return []
+  }
+}
+
 const IMAGE_BASE = 'https://image.tmdb.org/t/p/w500'
 
 type Kind = 'movie' | 'tv'
@@ -74,7 +122,7 @@ export async function fetchMetadata(
     if (imdbId) {
       // The /find response is keyed by result type, not by a generic results array.
       const found = await httpJson<TmdbFindResponse>(
-        `https://api.themoviedb.org/3/find/${encodeURIComponent(imdbId)}?api_key=${apiKey}&external_source=imdb_id`,
+        `https://api.themoviedb.org/3/find/${encodeURIComponent(imdbId)}?api_key=${encodeURIComponent(apiKey)}&external_source=imdb_id`,
         opts
       )
       const movie = found.movie_results?.[0]
@@ -82,13 +130,13 @@ export async function fetchMetadata(
       if (movie) {
         kind = 'movie'
         details = await httpJson<TmdbDetails>(
-          `https://api.themoviedb.org/3/movie/${movie.id}?api_key=${apiKey}`,
+          `https://api.themoviedb.org/3/movie/${movie.id}?api_key=${encodeURIComponent(apiKey)}`,
           opts
         )
       } else if (tv) {
         kind = 'tv'
         details = await httpJson<TmdbDetails>(
-          `https://api.themoviedb.org/3/tv/${tv.id}?api_key=${apiKey}`,
+          `https://api.themoviedb.org/3/tv/${tv.id}?api_key=${encodeURIComponent(apiKey)}`,
           opts
         )
       }
@@ -121,7 +169,7 @@ export async function fetchMetadata(
           ? 'tv'
           : 'movie'
       details = await httpJson<TmdbDetails>(
-        `https://api.themoviedb.org/3/${kind}/${candidate.id}?api_key=${apiKey}`,
+        `https://api.themoviedb.org/3/${kind}/${candidate.id}?api_key=${encodeURIComponent(apiKey)}`,
         opts
       )
     }

@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { settings } from '../settings.ts'
 import { infoHashFromMagnet } from './magnet.ts'
 import type { EngineAddInput, EngineFile, EngineSession, TorrentEngine } from './types.ts'
-import { extensionOf, isSubtitleFile, isVideoFile } from './types.ts'
+import { extensionOf, isSubtitleFile, isVideoFile, resolveInside, sanitizeRelativePath } from './types.ts'
 
 interface QbtTorrentInfo {
   hash: string
@@ -17,6 +17,8 @@ interface QbtTorrentInfo {
   num_leechs: number
   state: string
   size: number
+  /** Unix seconds; used to adopt hash-less URL-added torrents. */
+  added_on?: number
 }
 
 interface QbtFile {
@@ -43,6 +45,8 @@ export class QbittorrentEngine implements TorrentEngine {
   private hashes = new Map<string, string>()
   private listeners = new Set<(session: EngineSession) => void>()
   private poller: NodeJS.Timeout | null = null
+  private destroyed = false
+  private filesRetryAt = new Map<string, number>()
 
   private get config() {
     return settings.get().qbittorrent
@@ -70,6 +74,7 @@ export class QbittorrentEngine implements TorrentEngine {
     await this.login()
     const { url } = this.config
     const response = await fetch(`${url.replace(/\/$/, '')}${endpoint}`, {
+      signal: AbortSignal.timeout(15000),
       ...init,
       headers: {
         ...(init?.headers ?? {}),
@@ -167,6 +172,11 @@ export class QbittorrentEngine implements TorrentEngine {
     if (infoHash) this.hashes.set(sessionId, infoHash)
     this.startPolling()
     this.emit(session)
+    if (!infoHash) {
+      // URL-added torrents carry no hash — adopt it once qBittorrent reports
+      // the newcomer so progress/files work instead of erroring blindly at 45s.
+      void this.discoverHash(sessionId, Date.now())
+    }
 
     // A torrent qBittorrent never reports would spin forever in the UI.
     setTimeout(() => {
@@ -181,6 +191,40 @@ export class QbittorrentEngine implements TorrentEngine {
     }, 45_000).unref?.()
 
     return session
+  }
+
+  /**
+   * Best-effort adoption of the info hash for a torrent added by URL (the
+   * answer contains no hash). Polls for ~30s and adopts the hash only when
+   * exactly one recent torrent is a plausible match — ambiguous cases stay
+   * untracked rather than risk attaching to the wrong torrent.
+   */
+  private async discoverHash(sessionId: string, attachTimeMs: number): Promise<void> {
+    const attachSec = Math.floor(attachTimeMs / 1000)
+    for (let attempt = 0; attempt < 12; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 2500))
+      const session = this.sessions.get(sessionId)
+      if (!session || this.destroyed || this.hashes.has(sessionId)) return
+      try {
+        const torrents = await this.api<QbtTorrentInfo[]>('/api/v2/torrents/info')
+        const recent = torrents.filter((t) => (t.added_on ?? 0) >= attachSec - 5)
+        let candidate: QbtTorrentInfo | undefined
+        if (recent.length === 1) {
+          candidate = recent[0]
+        } else if (recent.length > 1 && session.name) {
+          const name = session.name.toLowerCase()
+          const byName = recent.filter((t) => t.name.toLowerCase() === name)
+          if (byName.length === 1) candidate = byName[0]
+        }
+        if (candidate) {
+          this.hashes.set(sessionId, candidate.hash.toLowerCase())
+          this.emit(session)
+          return
+        }
+      } catch {
+        // qBittorrent unreachable — retry until the attempts run out.
+      }
+    }
   }
 
   private startPolling(): void {
@@ -201,6 +245,7 @@ export class QbittorrentEngine implements TorrentEngine {
 
     try {
       const torrents = await this.api<QbtTorrentInfo[]>('/api/v2/torrents/info')
+      if (!Array.isArray(torrents)) throw new Error('unexpected qBittorrent response')
       for (const [sessionId, hash] of this.hashes) {
         const info = torrents.find((t) => t.hash.toLowerCase() === hash)
         const session = this.sessions.get(sessionId)
@@ -224,21 +269,43 @@ export class QbittorrentEngine implements TorrentEngine {
                 : 'downloading'
 
         if (session.files.length === 0 && info.size > 0) {
-          const files = await this.api<QbtFile[]>(`/api/v2/torrents/files?hash=${info.hash}`)
-          if (Array.isArray(files) && files.length > 0) {
-            session.files = files.map((file, index) => {
-              const fullPath = file.name
-              const ext = extensionOf(fullPath)
-              return {
-                index,
-                name: path.basename(fullPath),
-                path: fullPath,
-                size: file.size,
-                ext,
-                isVideo: isVideoFile(fullPath),
-                isSubtitle: isSubtitleFile(fullPath)
-              } satisfies EngineFile
-            })
+          const retryAt = this.filesRetryAt.get(sessionId) ?? 0
+          if (Date.now() < retryAt) {
+            // Back off after a failure instead of hammering the API every second.
+            this.emit(session)
+            continue
+          }
+          try {
+            const files = await this.api<QbtFile[]>(`/api/v2/torrents/files?hash=${info.hash}`)
+            // File paths from the API are relative to the torrent's save path —
+            // resolve them so the downloads library gets absolute paths.
+            const props = await this.api<QbtProperties>(
+              `/api/v2/torrents/properties?hash=${info.hash}`
+            )
+            if (Array.isArray(files) && files.length > 0) {
+              session.files = files.map((file, index) => {
+                const relative = sanitizeRelativePath(file.name)
+                const fullPath = props?.save_path
+                  ? resolveInside(props.save_path, relative)
+                  : relative
+                const ext = extensionOf(fullPath)
+                return {
+                  index,
+                  name: path.basename(fullPath),
+                  path: fullPath,
+                  size: file.size,
+                  ext,
+                  isVideo: isVideoFile(fullPath),
+                  isSubtitle: isSubtitleFile(fullPath)
+                } satisfies EngineFile
+              })
+              this.filesRetryAt.delete(sessionId)
+            }
+          } catch (error) {
+            // Leave session.files empty and retry later — never let one bad
+            // fetch abort progress updates for every other session.
+            this.filesRetryAt.set(sessionId, Date.now() + 30000)
+            console.warn('[qbittorrent] could not list torrent files', (error as Error).message)
           }
         }
 
@@ -254,6 +321,7 @@ export class QbittorrentEngine implements TorrentEngine {
     if (!hash) return undefined
     const body = new URLSearchParams({ hashes: hash })
     const headers = { 'content-type': 'application/x-www-form-urlencoded' }
+    let applied = false
     try {
       // qBittorrent 5 renamed pause/resume to stop/start; older builds only
       // understand the legacy endpoints.
@@ -262,6 +330,7 @@ export class QbittorrentEngine implements TorrentEngine {
         headers,
         body
       })
+      applied = true
     } catch {
       try {
         await this.api(paused ? '/api/v2/torrents/pause' : '/api/v2/torrents/resume', {
@@ -269,6 +338,7 @@ export class QbittorrentEngine implements TorrentEngine {
           headers,
           body
         })
+        applied = true
       } catch (error) {
         console.warn('[qbittorrent] pause change failed', (error as Error).message)
       }
@@ -276,6 +346,12 @@ export class QbittorrentEngine implements TorrentEngine {
     await this.refresh()
     const session = this.sessions.get(sessionId)
     if (!session) return undefined
+    if (!applied) {
+      // Neither endpoint worked — refresh() reflects qBittorrent's real
+      // state; do not pretend the user's click took effect.
+      this.emit(session)
+      return session
+    }
     session.paused = paused
     session.state = paused
       ? session.progress >= 1
@@ -303,6 +379,7 @@ export class QbittorrentEngine implements TorrentEngine {
     }
     this.sessions.delete(sessionId)
     this.hashes.delete(sessionId)
+    this.filesRetryAt.delete(sessionId)
   }
 
   list(): EngineSession[] {
@@ -336,7 +413,11 @@ export class QbittorrentEngine implements TorrentEngine {
     // missing pieces as zeroes, so wait until the whole torrent is on disk.
     const deadline = Date.now() + 30 * 60 * 1000
     while (Date.now() < deadline) {
+      if (this.destroyed || !this.sessions.has(sessionId)) {
+        throw new Error('qBittorrent engine was destroyed or the session was removed')
+      }
       const torrents = await this.api<QbtTorrentInfo[]>('/api/v2/torrents/info')
+      if (!Array.isArray(torrents)) throw new Error('unexpected qBittorrent response')
       const info = torrents.find((torrent) => torrent.hash.toLowerCase() === hash)
       if (!info) throw new Error('qBittorrent no longer has this torrent')
       if (info.state === 'error' || info.state === 'missingFiles') {
@@ -344,7 +425,10 @@ export class QbittorrentEngine implements TorrentEngine {
       }
       if (info.progress >= 1) {
         const props = await this.api<QbtProperties>(`/api/v2/torrents/properties?hash=${hash}`)
-        const fullPath = path.join(props.save_path, file.path)
+        // session.files paths are already absolute; older entries may still be relative.
+        const fullPath = path.isAbsolute(file.path)
+          ? file.path
+          : path.join(props.save_path, file.path)
         const stream = createReadStream(fullPath, { start: range.start, end: range.end })
         await new Promise<void>((resolve, reject) => {
           stream.once('open', () => resolve())
@@ -366,12 +450,14 @@ export class QbittorrentEngine implements TorrentEngine {
   }
 
   async destroy(): Promise<void> {
+    this.destroyed = true
     if (this.poller) {
       clearInterval(this.poller)
       this.poller = null
     }
     this.sessions.clear()
     this.hashes.clear()
+    this.filesRetryAt.clear()
     this.cookie = null
   }
 }

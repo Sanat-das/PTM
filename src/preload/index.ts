@@ -9,6 +9,7 @@ import {
 } from '../shared/ipc.ts'
 import type {
   AppSettings,
+  AudioTrackInfo,
   DownloadsSummary,
   LibraryEntry,
   MediaMetadata,
@@ -16,11 +17,13 @@ import type {
   ProviderHealth,
   YouTubeVideo,
   StreamTarget,
-  TorrentFile
+  TorrentFile,
+  DownloadItem
 } from '../shared/types.ts'
 
 const api: PtmApi = {
   search: (request: SearchRequest) => ipcRenderer.invoke(IPC.search, request),
+  searchSuggest: (query: string) => ipcRenderer.invoke(IPC.searchSuggest, query),
   providersHealth: () => ipcRenderer.invoke(IPC.providersHealth),
   youtubeTrailers: (title: string, year?: number) =>
     ipcRenderer.invoke(IPC.youtubeTrailers, title, year),
@@ -33,10 +36,12 @@ const api: PtmApi = {
   torrentStatus: (sessionId: string) => ipcRenderer.invoke(IPC.torrentStatus, sessionId),
   streamStart: (request: StreamRequest) => ipcRenderer.invoke(IPC.streamStart, request),
   streamStop: (sessionId: string) => ipcRenderer.invoke(IPC.streamStop, sessionId),
+  audioTracks: (sessionId: string, fileIndex: number) =>
+    ipcRenderer.invoke(IPC.audioTracks, sessionId, fileIndex),
   subtitleUrl: (sessionId: string, fileIndex: number) =>
     ipcRenderer.invoke(IPC.subtitleUrl, sessionId, fileIndex),
   settingsGet: () => ipcRenderer.invoke(IPC.settingsGet),
-  settingsSet: (settings: AppSettings) => ipcRenderer.invoke(IPC.settingsSet, settings),
+  settingsSet: (settings: Partial<AppSettings>) => ipcRenderer.invoke(IPC.settingsSet, settings),
   pickDirectory: (defaultPath?: string) => ipcRenderer.invoke(IPC.pickDirectory, defaultPath),
   defaultDownloads: () => ipcRenderer.invoke(IPC.defaultDownloads),
   libraryList: () => ipcRenderer.invoke(IPC.libraryList),
@@ -47,6 +52,17 @@ const api: PtmApi = {
   torrentSetPaused: (sessionId: string, paused: boolean) =>
     ipcRenderer.invoke(IPC.torrentSetPaused, sessionId, paused),
   downloadsSummary: () => ipcRenderer.invoke(IPC.downloadsSummary),
+  downloadsList: () => ipcRenderer.invoke(IPC.downloadsList),
+  downloadsGet: (id: string) => ipcRenderer.invoke(IPC.downloadsGet, id),
+  downloadsScan: () => ipcRenderer.invoke(IPC.downloadsScan),
+  downloadsRemove: (id: string, deleteFiles: boolean) =>
+    ipcRenderer.invoke(IPC.downloadsRemove, id, deleteFiles),
+  downloadsReveal: (id: string) => ipcRenderer.invoke(IPC.downloadsReveal, id),
+  onDownloadComplete: (cb: (item: DownloadItem) => void) => {
+    const listener = (_event: unknown, item: DownloadItem) => cb(item)
+    ipcRenderer.on('ptm:download-complete', listener)
+    return () => ipcRenderer.removeListener('ptm:download-complete', listener)
+  },
   openExternal: (url: string) => ipcRenderer.invoke(IPC.openExternal, url),
   onTorrentStatus: (cb: (status: TorrentStatus) => void) => {
     const listener = (_event: unknown, status: TorrentStatus) => cb(status)
@@ -62,4 +78,13 @@ const api: PtmApi = {
 
 contextBridge.exposeInMainWorld('ptm', api)
 
-export type { PtmApi, YouTubeVideo, ProviderHealth, MediaMetadata, StreamTarget, TorrentFile, LibraryEntry }
+export type {
+  PtmApi,
+  YouTubeVideo,
+  ProviderHealth,
+  MediaMetadata,
+  StreamTarget,
+  TorrentFile,
+  LibraryEntry,
+  AudioTrackInfo
+}
