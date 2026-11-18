@@ -31,3 +31,9 @@ test('space-separated H 264 codec parses as x264', () => {
   const parsed = parseRelease('Some Movie 2020 H 264 1080p')
   assert.equal(parsed.codec, 'x264')
 })
+
+test('PTM_VERSION constant matches package.json', async () => {
+  const { PTM_VERSION } = await import('./version.ts')
+  const pkg = (await import('../../package.json', { with: { type: 'json' } })).default as { version: string }
+  assert.equal(PTM_VERSION, pkg.version)
+})

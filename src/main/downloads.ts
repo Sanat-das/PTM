@@ -298,11 +298,11 @@ class DownloadsManager {
     const subtitleExts = ['srt', 'sub', 'ass', 'ssa', 'vtt']
     const videoPaths: string[] = []
 
-    const walk = (dir: string, depth: number) => {
+    const walk = async (dir: string, depth: number): Promise<void> => {
       if (depth > 6) return
       let entries: fs.Dirent[]
       try {
-        entries = fs.readdirSync(dir, { withFileTypes: true })
+        entries = await fs.promises.readdir(dir, { withFileTypes: true })
       } catch {
         return
       }
@@ -312,13 +312,13 @@ class DownloadsManager {
           if (entry.name.startsWith('.') || entry.name === 'node_modules') continue
           // Release-folder samples are teaser clips, not separate movies.
           if (entry.name.toLowerCase() === 'sample') continue
-          walk(full, depth + 1)
+          await walk(full, depth + 1)
         } else if (entry.isFile() && isVideoFile(entry.name)) {
           videoPaths.push(full)
         }
       }
     }
-    walk(root, 0)
+    await walk(root, 0)
 
     const existingPaths = new Set(
       Object.values(this.store.get()).flatMap((item) => item.files.map((file) => file.path.toLowerCase()))
@@ -333,7 +333,7 @@ class DownloadsManager {
         continue
       }
       try {
-        const stat = fs.statSync(videoPath)
+        const stat = await fs.promises.stat(videoPath)
         const name = path.basename(videoPath)
         const parsed = parseRelease(name)
         const dir = path.dirname(videoPath)
@@ -353,14 +353,15 @@ class DownloadsManager {
         ]
         // Sibling subtitles with the same basename: Movie.Name.srt, Movie.Name.eng.srt
         let subIndex = 1
-        for (const sub of fs.readdirSync(dir)) {
+        const dirEntries = await fs.promises.readdir(dir)
+        for (const sub of dirEntries) {
           const subExt = extensionOf(sub)
           if (!subtitleExts.includes(subExt)) continue
           const subStem = path.basename(sub, path.extname(sub))
           if (subStem === stem || subStem.startsWith(`${stem}.`)) {
             const subPath = path.join(dir, sub)
             try {
-              const subStat = fs.statSync(subPath)
+              const subStat = await fs.promises.stat(subPath)
               files.push({
                 index: subIndex,
                 name: sub,

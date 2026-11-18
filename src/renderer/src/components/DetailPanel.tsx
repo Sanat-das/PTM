@@ -242,6 +242,14 @@ function SessionPanel({
         <span className="text-mist-200">{session.numPeers} peers</span>
         <span className="text-mist-400">·</span>
         <span className="text-mist-200">{formatBytes(session.downloadSpeed)}/s down</span>
+        {session.state === 'downloading' && session.numPeers === 0 && session.downloadSpeed === 0 && (
+          <span
+            className="rounded bg-warn-500/15 px-1.5 py-0.5 text-[10px] font-medium uppercase text-warn-500"
+            title="No peers — trackers may be blocked on this network (run Diagnostics, or enable the proxy in Settings)"
+          >
+            Stalled
+          </span>
+        )}
         <span className={`ml-auto rounded px-1.5 py-0.5 text-[10px] font-medium uppercase ${stateTone}`}>
           {session.state}
         </span>

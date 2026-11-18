@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { DEFAULT_SETTINGS, type AppSettings, type ProxyType } from '../../../shared/types.ts'
 import { api } from '../lib/api.ts'
 import { useUiStore } from '../lib/store.ts'
+import { PTM_VERSION } from '../../../shared/version.ts'
 
 const PROVIDER_NAMES: Record<string, string> = {
   apibay: 'The Pirate Bay (apibay)',
@@ -373,6 +374,9 @@ export function SettingsPanel() {
       </div>
 
       <footer className="flex items-center gap-2 border-t border-ink-700 px-5 py-3">
+        <span className="font-mono text-[10px] text-mist-400" title="PTM app version">
+          v{PTM_VERSION}
+        </span>
         <button
           onClick={() => {
             setDraft(structuredClone(DEFAULT_SETTINGS))
