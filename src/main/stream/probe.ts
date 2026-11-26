@@ -3,22 +3,20 @@ import type { AudioTrackInfo } from '../../shared/types.ts'
 import { resolveFfmpeg } from './transcode.ts'
 
 /**
- * Lists the audio streams of a media file by running `ffmpeg -i <url>` and
- * parsing the stream table it prints to stderr (ffmpeg has no machine-readable
- * stream dump without ffprobe, which ffmpeg-static does not ship).
+ * Runs `ffmpeg -i <url>` and returns the stream table it prints to stderr.
+ * ffmpeg has no machine-readable stream dump without ffprobe, which
+ * ffmpeg-static does not ship. ffmpeg exits non-zero for `-i` with no output
+ * file; that is expected and ignored.
  */
-export function probeAudioTracks(
-  sourceUrl: string,
-  timeoutMs = 20000
-): Promise<AudioTrackInfo[]> {
+function probeOutput(sourceUrl: string, timeoutMs: number): Promise<string> {
   return new Promise((resolve) => {
     let output = ''
     let settled = false
-    const done = (tracks: AudioTrackInfo[]) => {
+    const done = (text: string) => {
       if (settled) return
       settled = true
       clearTimeout(timer)
-      resolve(tracks)
+      resolve(text)
     }
 
     let child: ReturnType<typeof spawn>
@@ -29,14 +27,14 @@ export function probeAudioTracks(
       })
     } catch (error) {
       console.warn('[probe] spawn failed', (error as Error).message)
-      resolve([])
+      resolve('')
       return
     }
 
     const timer = setTimeout(() => {
       console.warn('[probe] timed out reading the stream header')
       child.kill()
-      done([])
+      done('')
     }, timeoutMs)
 
     child.stderr?.on('data', (chunk: Buffer) => {
@@ -46,13 +44,42 @@ export function probeAudioTracks(
     })
     child.on('error', (error) => {
       console.warn('[probe] spawn failed', error.message)
-      done([])
+      done('')
     })
-    // 'close' fires once stdio is fully drained — 'exit' can cut off the tail
-    // of the stream table. ffmpeg exits non-zero for `-i` with no output
-    // file; that is expected.
-    child.on('close', () => done(parseAudioTracks(output)))
+    // 'close' fires once stdio is fully drained — 'exit' can cut off the tail.
+    child.on('close', () => done(output))
   })
+}
+
+/** Lists the audio streams of a media file. */
+export function probeAudioTracks(
+  sourceUrl: string,
+  timeoutMs = 20000
+): Promise<AudioTrackInfo[]> {
+  return probeOutput(sourceUrl, timeoutMs).then(parseAudioTracks)
+}
+
+// Codecs HLS can carry without transcoding. Anything else (VP9, AC3, DTS, …)
+// has to go through libx264/AAC, which is what made large files wait.
+const REMUX_CODECS = new Set(['h264', 'avc1', 'aac', 'mp4a'])
+const STREAM_CODEC = /^\s*Stream #\d+:\d+.*?:\s*(Video|Audio):\s*([A-Za-z0-9_.-]+)/
+
+/**
+ * True when every video/audio stream can be stream-copied into fMP4 HLS.
+ * Subtitle and data streams are ignored: ffmpeg's default mapping excludes
+ * them from the HLS output anyway.
+ */
+export async function probeCanRemux(sourceUrl: string, timeoutMs = 20000): Promise<boolean> {
+  const output = await probeOutput(sourceUrl, timeoutMs)
+  let hasVideo = false
+  let ok = true
+  for (const line of output.split('\n')) {
+    const match = STREAM_CODEC.exec(line)
+    if (!match) continue
+    if (match[1] === 'Video') hasVideo = true
+    if (!REMUX_CODECS.has(match[2].toLowerCase())) ok = false
+  }
+  return hasVideo && ok
 }
 
 const AUDIO_LINE =

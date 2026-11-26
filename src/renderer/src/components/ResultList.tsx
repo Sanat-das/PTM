@@ -12,6 +12,8 @@ interface ResultListProps {
   elapsedMs: number
   onPlay: (result: TorrentResult) => void
   pendingInfoHash?: string
+  emptyTitle?: string
+  emptyBody?: string
 }
 
 export function ResultList({
@@ -22,7 +24,9 @@ export function ResultList({
   providers,
   elapsedMs,
   onPlay,
-  pendingInfoHash
+  pendingInfoHash,
+  emptyTitle,
+  emptyBody
 }: ResultListProps) {
   const selected = useUiStore((state) => state.selected)
   const select = useUiStore((state) => state.select)
@@ -60,9 +64,13 @@ export function ResultList({
   if (results.length === 0) {
     return (
       <EmptyState
-        title="No results"
-        body="Nothing matched this query with the current filters."
-        hint={providers.some((p) => !p.reachable) ? 'Some indexes were unreachable — see Diagnostics.' : undefined}
+        title={emptyTitle ?? 'No results'}
+        body={emptyBody ?? 'Nothing matched this query with the current filters.'}
+        hint={
+          providers.some((p) => !p.reachable)
+            ? 'Some indexes were unreachable — see Diagnostics.'
+            : undefined
+        }
       />
     )
   }

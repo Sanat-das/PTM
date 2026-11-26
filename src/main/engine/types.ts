@@ -43,8 +43,8 @@ export interface EngineAddInput {
 }
 
 export interface TorrentEngine {
-  /** Built-in/qBittorrent engines, plus a synthetic one that serves completed downloads from disk. */
-  readonly id: 'builtin' | 'qbittorrent' | 'local'
+  /** The built-in WebTorrent engine, plus a synthetic one serving completed files from disk. */
+  readonly id: 'builtin' | 'local'
   readonly label: string
   /** Pause or resume a single torrent. */
   setPaused(sessionId: string, paused: boolean): Promise<EngineSession | undefined>

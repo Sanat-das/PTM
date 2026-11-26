@@ -7,6 +7,8 @@ export interface ProviderSearchContext {
   trackers: string[]
   /** Narrow the search to a single theme, when the provider supports it. */
   theme?: Theme
+  /** Provider-native category id for Browse mode (e.g. a TPB `cat` id). */
+  category?: string
   /** IMDB id, used by providers that index by imdb id (EZTV). */
   imdbId?: string
 }

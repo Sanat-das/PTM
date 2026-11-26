@@ -5,7 +5,15 @@ import path from 'node:path'
 import { randomBytes } from 'node:crypto'
 import type { TorrentEngine } from '../engine/types.ts'
 import { makeTempDir, removeTempDir, startHlsTranscode } from './transcode.ts'
+import { probeCanRemux } from './probe.ts'
 import { toVtt } from './subtitles.ts'
+
+/**
+ * Cap open-ended range responses. A bare `Range: bytes=0-` would otherwise
+ * open a read stream over the entire (multi-GB) file; bounded chunks let the
+ * browser start playing after the first piece and seek with small requests.
+ */
+const MAX_RANGE_BYTES = 8 * 1024 * 1024
 
 interface HlsSession {
   id: string
@@ -138,8 +146,11 @@ export class StreamServer {
    * ordinal) pins transcoding to that track; switching it starts a fresh
    * transcode on the next request.
    */
-  hlsUrl(sessionId: string, fileIndex: number, audioTrack?: number): string {
-    const suffix = audioTrack !== undefined ? `?audio=${audioTrack}` : ''
+  hlsUrl(sessionId: string, fileIndex: number, audioTrack?: number, forceTranscode = false): string {
+    const params = new URLSearchParams()
+    if (audioTrack !== undefined) params.set('audio', String(audioTrack))
+    if (forceTranscode) params.set('transcode', '1')
+    const suffix = params.size ? `?${params.toString()}` : ''
     return `${this.baseUrl}/hls/${this.token}/${sessionId}/${fileIndex}/index.m3u8${suffix}`
   }
 
@@ -170,6 +181,7 @@ export class StreamServer {
     const audioParam = url.searchParams.get('audio')
     const audioTrack =
       audioParam !== null && /^\d+$/.test(audioParam) ? Number(audioParam) : undefined
+    const forceTranscode = url.searchParams.get('transcode') === '1'
 
     // /s/<token>/<sessionId>/<fileIndex>
     if (segments[0] === 's' && segments.length === 4) {
@@ -187,7 +199,7 @@ export class StreamServer {
         res.writeHead(403).end('Forbidden')
         return
       }
-      await this.handleHls(req, res, segments[2], Number(segments[3]), segments[4], audioTrack, cors)
+      await this.handleHls(req, res, segments[2], Number(segments[3]), segments[4], audioTrack, forceTranscode, cors)
       return
     }
 
@@ -244,6 +256,7 @@ export class StreamServer {
           return
         }
         end = Math.min(end, total - 1)
+        if (end - start + 1 > MAX_RANGE_BYTES) end = start + MAX_RANGE_BYTES - 1
         status = 206
       }
     }
@@ -276,9 +289,10 @@ export class StreamServer {
     fileIndex: number,
     file: string,
     audioTrack: number | undefined,
+    forceTranscode: boolean,
     cors: Record<string, string>
   ): Promise<void> {
-    const key = `${sessionId}:${fileIndex}:${audioTrack ?? 'default'}`
+    const key = `${sessionId}:${fileIndex}:${audioTrack ?? 'default'}:${forceTranscode ? 't' : 'r'}`
 
     if (file === 'index.m3u8') {
       let hls = this.hlsSessions.get(key)
@@ -289,7 +303,7 @@ export class StreamServer {
           res.writeHead(404).end('Unknown session')
           return
         }
-        hls = this.createHlsSession(sessionId, fileIndex, audioTrack)
+        hls = await this.createHlsSession(sessionId, fileIndex, audioTrack, forceTranscode)
       }
 
       if (!fs.existsSync(hls.playlistPath)) {
@@ -308,10 +322,25 @@ export class StreamServer {
       }
 
       const playlist = fs.readFileSync(hls.playlistPath, 'utf8')
-      const segmentSuffix = audioTrack !== undefined ? `?audio=${audioTrack}` : ''
-      const rewritten = playlist.replace(/^(seg_[^\n]+)$/gm, (match) =>
-        `/hls/${this.token}/${sessionId}/${fileIndex}/${match}${segmentSuffix}`
-      )
+      // With temp_file the playlist can appear just before the fMP4 init
+      // segment is renamed into place. Don't hand clients a manifest whose
+      // EXT-X-MAP target would 404.
+      if (playlist.includes('#EXT-X-MAP') && !fs.existsSync(path.join(hls.dir, 'init.mp4'))) {
+        res.writeHead(503, { ...cors, 'retry-after': '1' }).end('Init segment not ready')
+        return
+      }
+      const segmentParams = new URLSearchParams()
+      if (audioTrack !== undefined) segmentParams.set('audio', String(audioTrack))
+      if (forceTranscode) segmentParams.set('transcode', '1')
+      const segmentSuffix = segmentParams.size ? `?${segmentParams.toString()}` : ''
+      const prefix = `/hls/${this.token}/${sessionId}/${fileIndex}/`
+      // fMP4 playlists point at init.mp4 in #EXT-X-MAP; TS playlists do not.
+      // Both segment names and the init segment need the tokenised URL.
+      const rewritten = playlist
+        .replace(/^(#EXT-X-MAP:URI=")([^"]+)(".*)$/gm, (_, before: string, uri: string, after: string) =>
+          `${before}${prefix}${path.basename(uri)}${segmentSuffix}${after}`
+        )
+        .replace(/^(seg_[^\n]+)$/gm, (match) => `${prefix}${match}${segmentSuffix}`)
       res.writeHead(200, {
         ...cors,
         'content-type': 'application/vnd.apple.mpegurl',
@@ -322,7 +351,8 @@ export class StreamServer {
     }
 
     // Only finalized segments are servable — never ffmpeg's temp_file names.
-    if (!/^seg_\d+\.ts$/.test(file)) {
+    // Remuxed HLS is fMP4 (init.mp4 + seg_*.m4s); the transcode fallback is TS.
+    if (!/^(?:init\.mp4|seg_\d+\.(?:ts|m4s))$/.test(file)) {
       res.writeHead(404).end('Not found')
       return
     }
@@ -344,7 +374,7 @@ export class StreamServer {
     const { size } = fs.statSync(target)
     res.writeHead(200, {
       ...cors,
-      'content-type': 'video/mp2t',
+      'content-type': file.endsWith('.ts') ? 'video/mp2t' : 'video/mp4',
       'content-length': size,
       'cache-control': 'no-store'
     })
@@ -404,10 +434,20 @@ export class StreamServer {
     res.end(vtt)
   }
 
-  private createHlsSession(sessionId: string, fileIndex: number, audioTrack?: number): HlsSession {
-    const key = `${sessionId}:${fileIndex}:${audioTrack ?? 'default'}`
+  private async createHlsSession(
+    sessionId: string,
+    fileIndex: number,
+    audioTrack: number | undefined,
+    forceTranscode: boolean
+  ): Promise<HlsSession> {
+    const key = `${sessionId}:${fileIndex}:${audioTrack ?? 'default'}:${forceTranscode ? 't' : 'r'}`
     const dir = makeTempDir()
     const source = this.directUrl(sessionId, fileIndex)
+
+    // Stream-copy when the codecs allow it: the first segment is ready in
+    // milliseconds instead of after encoding several seconds of video. An
+    // explicit "retry with transcoding" opts out of that shortcut.
+    const remux = forceTranscode ? false : await probeCanRemux(source)
 
     // Start the replacement first; only kill the previous transcode once the
     // new one is running, so a failed spawn keeps the old stream alive.
@@ -417,6 +457,7 @@ export class StreamServer {
         sourceUrl: source,
         outputDir: dir,
         audioIndex: audioTrack,
+        remux,
         onExit: (code) => {
           const hls = this.hlsSessions.get(key)
           if (hls) hls.exitCode = code

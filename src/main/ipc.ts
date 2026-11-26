@@ -17,6 +17,7 @@ import type {
 import {
   IPC,
   type AddTorrentRequest,
+  type DiscoverRequest,
   type SearchRequest,
   type SearchResponse,
   type StreamRequest,
@@ -28,7 +29,7 @@ import { downloads } from './downloads.ts'
 import { appendTrackers, infoHashFromTorrent } from './engine/magnet.ts'
 import { BROWSER_PLAYABLE_EXTENSIONS, type EngineSession } from './engine/types.ts'
 import { library } from './library.ts'
-import { fetchMetadata, fetchSuggestions } from './metadata/tmdb.ts'
+import { fetchDiscover, fetchMetadata, fetchSuggestions } from './metadata/tmdb.ts'
 import { httpBuffer } from './net/http.ts'
 import { runDiagnostics } from './diagnostics.ts'
 import { checkProviderHealth, searchAll } from './providers/registry.ts'
@@ -158,6 +159,32 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     const current = settings.get()
     const proxy = current.proxy.enabled ? current.proxy : undefined
     return fetchSuggestions(query, proxy)
+  })
+
+  ipcMain.handle(IPC.discover, async (_event, request: DiscoverRequest) => {
+    if (!request || typeof request !== 'object') throw new Error('Invalid discover request')
+    if (request.kind !== 'movie' && request.kind !== 'tv') throw new Error('Invalid discover kind')
+    if (request.genreId !== undefined && request.genreId !== null && !Number.isInteger(request.genreId)) {
+      throw new Error('Invalid genre id')
+    }
+    if (request.year !== undefined && request.year !== null && !Number.isInteger(request.year)) {
+      throw new Error('Invalid year')
+    }
+    if (
+      request.minRating !== undefined &&
+      request.minRating !== null &&
+      (typeof request.minRating !== 'number' || !Number.isFinite(request.minRating))
+    ) {
+      throw new Error('Invalid minimum rating')
+    }
+    if (
+      request.page !== undefined &&
+      (!Number.isInteger(request.page) || request.page < 1 || request.page > 100)
+    ) {
+      throw new Error('Invalid page')
+    }
+    const current = settings.get()
+    return fetchDiscover(request, current.proxy.enabled ? current.proxy : undefined)
   })
 
   ipcMain.handle(IPC.providersHealth, async (): Promise<ProviderHealth[]> => {
@@ -367,7 +394,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         url:
           decision.mode === 'direct'
             ? server.directUrl(request.sessionId, request.fileIndex)
-            : server.hlsUrl(request.sessionId, request.fileIndex, audioTrack),
+            : server.hlsUrl(
+                request.sessionId,
+                request.fileIndex,
+                audioTrack,
+                Boolean(request.forceTranscode)
+              ),
         mode: decision.mode,
         mimeType: decision.mode === 'direct' ? `video/${file.ext}` : 'application/vnd.apple.mpegurl',
         contentLength: file.size,
@@ -412,9 +444,6 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     IPC.settingsSet,
     async (_event, next: Partial<AppSettings>): Promise<AppSettings> => {
       if (!next || typeof next !== 'object') throw new Error('Invalid settings payload')
-      if (next.engine !== undefined && next.engine !== 'builtin' && next.engine !== 'qbittorrent') {
-        throw new Error(`Unknown engine: ${String(next.engine)}`)
-      }
       if (next.trackers !== undefined) {
         if (!Array.isArray(next.trackers) || !next.trackers.every((t) => typeof t === 'string')) {
           throw new Error('trackers must be an array of strings')
@@ -441,23 +470,15 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         }
       }
       if (
-        next.qbittorrent !== undefined &&
-        (typeof next.qbittorrent !== 'object' || typeof next.qbittorrent.url !== 'string')
-      ) {
-        throw new Error('Invalid qBittorrent config')
-      }
-      if (
         next.preferredAudioLanguage !== undefined &&
         typeof next.preferredAudioLanguage !== 'string'
       ) {
         throw new Error('preferredAudioLanguage must be a string')
       }
       // Partial patches merge onto the current settings — callers can send
-      // just the keys they changed (e.g. { engine }) without clobbering
-      // concurrent edits with a stale snapshot.
-      const saved = settings.set(next)
-      engineManager.use(saved.engine)
-      return saved
+      // just the keys they changed without clobbering concurrent edits with
+      // a stale snapshot.
+      return settings.set(next)
     }
   )
 

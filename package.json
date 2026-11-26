@@ -1,7 +1,7 @@
 {
   "name": "ptm",
-  "version": "0.2.2",
-  "description": "Search torrents, check YouTube reviews, watch it all in one app",
+  "version": "0.3.0",
+  "description": "Play Torren Media — search torrents, check YouTube reviews, watch it all in one app",
   "private": true,
   "type": "module",
   "main": "./out/main/index.js",

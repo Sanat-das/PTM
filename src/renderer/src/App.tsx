@@ -1,23 +1,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { applyFilters } from '../../shared/filters.ts'
+import { BROWSE_CATEGORIES } from '../../shared/discover.ts'
 import { DEFAULT_FILTERS, type TorrentResult } from '../../shared/types.ts'
 import { api } from './lib/api.ts'
 import { toast } from 'sonner'
 import { useUiStore } from './lib/store.ts'
+import { BrowseStrip } from './components/BrowseStrip.tsx'
 import { DetailPanel } from './components/DetailPanel.tsx'
 import { DiagnosticsPanel } from './components/DiagnosticsPanel.tsx'
+import { DiscoverPanel } from './components/DiscoverPanel.tsx'
 import { FilterPanel } from './components/FilterPanel.tsx'
 import { LibraryPanel } from './components/LibraryPanel.tsx'
 import { Player } from './components/Player.tsx'
 import { ResultList } from './components/ResultList.tsx'
 import { SettingsPanel } from './components/SettingsPanel.tsx'
 import { TopBar } from './components/TopBar.tsx'
+import { ViewTabs } from './components/ViewTabs.tsx'
 import { useTorrentSession } from './hooks/useTorrentSession.ts'
 
 export default function App() {
   const submitted = useUiStore((state) => state.submitted)
   const filters = useUiStore((state) => state.filters)
+  const view = useUiStore((state) => state.view)
+  const browseCategory = useUiStore((state) => state.browseCategory)
   const panel = useUiStore((state) => state.panel)
   const player = useUiStore((state) => state.player)
   const closePlayer = useUiStore((state) => state.closePlayer)
@@ -28,23 +34,25 @@ export default function App() {
 
   const themeKey = filters.themes.join(',')
   const queryClient = useQueryClient()
-  const [enginePending, setEnginePending] = useState(false)
+  const activeCategory =
+    BROWSE_CATEGORIES.find((entry) => entry.id === browseCategory) ?? BROWSE_CATEGORIES[0]
+  const isBrowse = view === 'browse'
 
   const searchQuery = useQuery({
-    queryKey: ['search', submitted, themeKey],
+    queryKey: ['search', view, isBrowse ? activeCategory.id : submitted, themeKey],
     queryFn: () =>
       api.search({
-        query: submitted,
-        filters: { ...DEFAULT_FILTERS, themes: filters.themes }
+        // Browse has no text query: indexes return their newest rows for the
+        // selected category instead. Quality filters still run client-side.
+        query: isBrowse ? '' : submitted,
+        filters: {
+          ...DEFAULT_FILTERS,
+          themes: filters.themes,
+          category: isBrowse ? activeCategory.category ?? '' : ''
+        }
       }),
-    enabled: submitted.length > 0,
+    enabled: isBrowse || submitted.length > 0,
     staleTime: 60_000
-  })
-
-  const settingsQuery = useQuery({
-    queryKey: ['settings'],
-    queryFn: () => api.settingsGet(),
-    staleTime: Infinity
   })
 
   const results = useMemo(
@@ -116,41 +124,40 @@ export default function App() {
         onOpenSettings={() => useUiStore.getState().setPanel('settings')}
         onOpenLibrary={() => useUiStore.getState().setPanel('library')}
         onOpenDiagnostics={() => useUiStore.getState().setPanel('diagnostics')}
-        engine={settingsQuery.data?.engine ?? 'builtin'}
-        engineDisabled={enginePending}
-        onEngineChange={(engine) => {
-          // Send only the key being changed — spreading the cached snapshot
-          // would clobber concurrent settings edits with stale values.
-          void (async () => {
-            setEnginePending(true)
-            try {
-              await api.settingsSet({ engine })
-              await queryClient.invalidateQueries({ queryKey: ['settings'] })
-              toast.success(`Switched to ${engine === 'qbittorrent' ? 'qBittorrent' : 'the built-in engine'}`)
-            } catch (error) {
-              toast.error(`Could not switch engine: ${(error as Error).message}`)
-            } finally {
-              setEnginePending(false)
-            }
-          })()
-        }}
       />
 
-      <div className="flex min-h-0 flex-1">
-        <FilterPanel results={searchQuery.data?.results ?? []} />
+      <ViewTabs />
 
-        <main className="min-w-0 flex-1 overflow-y-auto">
-          <ResultList
-            results={results}
-            isLoading={searchQuery.isLoading}
-            error={searchQuery.error as Error | null}
-            hasQuery={submitted.length > 0}
-            providers={searchQuery.data?.providers ?? []}
-            elapsedMs={searchQuery.data?.elapsedMs ?? 0}
-            onPlay={handlePlay}
-            pendingInfoHash={pendingResult?.infoHash}
-          />
-        </main>
+      <div className="flex min-h-0 flex-1">
+        {view !== 'discover' && <FilterPanel results={searchQuery.data?.results ?? []} />}
+
+        {view === 'discover' ? (
+          <main className="min-w-0 flex-1">
+            <DiscoverPanel />
+          </main>
+        ) : (
+          <div className="flex min-w-0 flex-1 flex-col">
+            {isBrowse && <BrowseStrip />}
+            <main className="min-w-0 flex-1 overflow-y-auto">
+              <ResultList
+                results={results}
+                isLoading={searchQuery.isLoading}
+                error={searchQuery.error as Error | null}
+                hasQuery={isBrowse || submitted.length > 0}
+                providers={searchQuery.data?.providers ?? []}
+                elapsedMs={searchQuery.data?.elapsedMs ?? 0}
+                onPlay={handlePlay}
+                pendingInfoHash={pendingResult?.infoHash}
+                emptyTitle={isBrowse ? 'Nothing in this category' : undefined}
+                emptyBody={
+                  isBrowse
+                    ? 'Try another category or relax the quality filters on the left.'
+                    : undefined
+                }
+              />
+            </main>
+          </div>
+        )}
 
         <DetailPanel
           onPlay={handlePlay}

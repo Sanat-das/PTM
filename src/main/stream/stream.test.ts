@@ -203,6 +203,28 @@ test('stream server serves byte ranges', async (t) => {
   assert.equal(unauthorised.status, 403)
 })
 
+test('open-ended byte ranges are capped to a bounded chunk', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptm-test-'))
+  const big = path.join(dir, 'big.mp4')
+  const fd = fs.openSync(big, 'w')
+  fs.ftruncateSync(fd, 9 * 1024 * 1024)
+  fs.closeSync(fd)
+  const engine = new FakeEngine(big)
+  const server = new StreamServer(() => engine)
+  await server.start()
+  t.after(() => {
+    server.stop()
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  const total = 9 * 1024 * 1024
+  const cap = 8 * 1024 * 1024
+  const res = await fetch(server.directUrl('s1', 0), { headers: { range: 'bytes=0-' } })
+  assert.equal(res.status, 206)
+  assert.equal(res.headers.get('content-range'), `bytes 0-${cap - 1}/${total}`)
+  assert.equal((await res.arrayBuffer()).byteLength, cap)
+})
+
 test('stream server produces an HLS playlist via ffmpeg', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptm-test-'))
   const video = makeSampleVideo(dir)
@@ -224,16 +246,25 @@ test('stream server produces an HLS playlist via ffmpeg', async (t) => {
   assert.ok(playlist.includes('#EXTM3U'), 'playlist should be a valid m3u8')
   assert.ok(playlist.includes('#EXTINF'), 'playlist should list segments')
 
+  // H.264/AAC input is stream-copied into fMP4 HLS: the playlist carries an
+  // EXT-X-MAP pointing at the init segment, and no re-encode is needed.
+  const initMatch = /#EXT-X-MAP:URI="([^"]+)"/.exec(playlist)
+  assert.ok(initMatch, 'playlist should reference an fMP4 init segment')
+  assert.ok(initMatch[1].startsWith('/hls/'), 'init segment URL should be tokenised')
+  const initResponse = await fetch(`${server.baseUrl}${initMatch[1]}`)
+  assert.equal(initResponse.status, 200)
+  assert.equal(initResponse.headers.get('content-type'), 'video/mp4')
+
   // Segment references are rewritten to absolute paths under the stream server.
   const segmentPath = playlist
     .split('\n')
     .map((line) => line.trim())
-    .find((line) => line.endsWith('.ts'))
+    .find((line) => /\.(ts|m4s)$/.test(line))
   assert.ok(segmentPath, 'playlist should reference a segment file')
 
   const segmentResponse = await fetch(`${server.baseUrl}${segmentPath}`)
   assert.equal(segmentResponse.status, 200)
-  assert.equal(segmentResponse.headers.get('content-type'), 'video/mp2t')
+  assert.ok(['video/mp2t', 'video/mp4'].includes(segmentResponse.headers.get('content-type') ?? ''))
   assert.ok((await segmentResponse.arrayBuffer()).byteLength > 0)
 })
 

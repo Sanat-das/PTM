@@ -13,12 +13,16 @@ import type {
   TorrentFile,
   TorrentResult,
   SearchSuggestion,
-  DownloadItem
+  DownloadItem,
+  DiscoverItem,
+  DiscoverKind,
+  DiscoverSort
 } from './types.ts'
 
 export const IPC = {
   search: 'ptm:search',
   searchSuggest: 'ptm:search-suggest',
+  discover: 'ptm:discover',
   providersHealth: 'ptm:providers-health',
   youtubeTrailers: 'ptm:youtube-trailers',
   metadata: 'ptm:metadata',
@@ -60,6 +64,22 @@ export interface SearchResponse {
   elapsedMs: number
 }
 
+export interface DiscoverRequest {
+  kind: DiscoverKind
+  genreId?: number | null
+  year?: number | null
+  minRating?: number | null
+  sort: DiscoverSort
+  /** 1-based TMDB page; each page holds up to 20 titles. */
+  page?: number
+}
+
+export interface DiscoverResponse {
+  items: DiscoverItem[]
+  /** False when no TMDB API key is configured (Discover is optional). */
+  configured: boolean
+}
+
 export interface AddTorrentRequest {
   magnet?: string
   url?: string
@@ -92,6 +112,7 @@ export interface StreamRequest {
 export interface PtmApi {
   search(request: SearchRequest): Promise<SearchResponse>
   searchSuggest(query: string): Promise<SearchSuggestion[]>
+  discover(request: DiscoverRequest): Promise<DiscoverResponse>
   providersHealth(): Promise<ProviderHealth[]>
   youtubeTrailers(title: string, year?: number): Promise<YouTubeVideo[]>
   metadata(title: string, year?: number, imdbId?: string): Promise<MediaMetadata | null>

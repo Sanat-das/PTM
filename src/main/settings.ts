@@ -15,7 +15,6 @@ class SettingsManager {
       ...raw,
       pausePlaybackOnMinimize,
       proxy: { ...DEFAULT_SETTINGS.proxy, ...(raw.proxy ?? {}) },
-      qbittorrent: { ...DEFAULT_SETTINGS.qbittorrent, ...(raw.qbittorrent ?? {}) },
       trackers: Array.isArray(raw.trackers) ? raw.trackers : DEFAULT_SETTINGS.trackers,
       providers: raw.providers ?? {}
     }
@@ -31,7 +30,6 @@ class SettingsManager {
       ...next,
       ...patch,
       proxy: { ...next.proxy, ...(patch.proxy ?? {}) },
-      qbittorrent: { ...next.qbittorrent, ...(patch.qbittorrent ?? {}) },
       providers: patch.providers ? { ...next.providers, ...patch.providers } : next.providers
     }
     this.store.replace(merged)

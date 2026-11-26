@@ -26,9 +26,14 @@ export const apibayProvider: TorrentProvider = {
   themes: ['movies', 'tv', 'anime', 'music', 'games', 'books', 'apps', 'adult', 'other'],
 
   async search(ctx: ProviderSearchContext) {
-    const category = themeToCategory(ctx.theme)
+    // Browse mode supplies an explicit native category; a filtered search
+    // still falls back to the theme-to-category hint.
+    const category = ctx.category || themeToCategory(ctx.theme)
     const url = new URL('https://apibay.org/q.php')
-    url.searchParams.set('q', ctx.query)
+    // apibay returns a dummy "No results returned" row for an empty q. A
+    // single '*' is its wildcard and, combined with cat, lists that category's
+    // newest rows — what Browse mode needs.
+    url.searchParams.set('q', ctx.query.trim() || '*')
     if (category) url.searchParams.set('cat', category)
 
     const rows = await httpJson<ApibayRow[]>(url.toString(), { proxy: ctx.proxy, timeout: 20000 })

@@ -1,4 +1,5 @@
-import type { MediaMetadata, ProxyConfig, SearchSuggestion } from '../../shared/types.ts'
+import type { DiscoverItem, MediaMetadata, ProxyConfig, SearchSuggestion } from '../../shared/types.ts'
+import type { DiscoverRequest, DiscoverResponse } from '../../shared/ipc.ts'
 import { httpJson } from '../net/http.ts'
 import { settings } from '../settings.ts'
 
@@ -14,6 +15,7 @@ interface TmdbSearchResult {
   backdrop_path?: string | null
   vote_average?: number
   imdb_id?: string | null
+  genre_ids?: number[]
 }
 
 interface TmdbFindResponse {
@@ -195,5 +197,70 @@ export async function fetchMetadata(
   } catch (error) {
     console.error('[tmdb] lookup failed', (error as Error).message)
     return null
+  }
+}
+
+/**
+ * TMDB Discover: a query-free feed driven by the user's choices (kind, genre,
+ * year, rating, sort). Returns `configured: false` when there is no API key so
+ * the UI can point at Settings instead of showing a misleading empty grid.
+ */
+export async function fetchDiscover(
+  request: DiscoverRequest,
+  proxy?: ProxyConfig
+): Promise<DiscoverResponse> {
+  const apiKey = settings.get().tmdbApiKey
+  if (!apiKey) return { items: [], configured: false }
+
+  const kind = request.kind === 'tv' ? 'tv' : 'movie'
+  const params = new URLSearchParams({
+    api_key: apiKey,
+    include_adult: 'false',
+    include_video: 'false',
+    page: String(Number.isInteger(request.page) && request.page! > 0 ? Math.min(request.page!, 100) : 1)
+  })
+
+  switch (request.sort) {
+    case 'rating':
+      params.set('sort_by', 'vote_average.desc')
+      // Without a vote floor, "top rated" is full of 1-vote 10/10 titles.
+      params.set('vote_count.gte', '100')
+      break
+    case 'newest':
+      params.set('sort_by', kind === 'movie' ? 'primary_release_date.desc' : 'first_air_date.desc')
+      break
+    default:
+      params.set('sort_by', 'popularity.desc')
+  }
+
+  if (request.genreId) params.set('with_genres', String(request.genreId))
+  if (request.year) {
+    params.set(kind === 'movie' ? 'primary_release_year' : 'first_air_date_year', String(request.year))
+  }
+  if (request.minRating) params.set('vote_average.gte', String(request.minRating))
+
+  try {
+    const payload = await httpJson<{ results?: TmdbSearchResult[] }>(
+      `https://api.themoviedb.org/3/discover/${kind}?${params.toString()}`,
+      { proxy, timeout: 12000 }
+    )
+    const items: DiscoverItem[] = (payload.results ?? []).map((r) => {
+      const date = r.release_date ?? r.first_air_date
+      return {
+        tmdbId: r.id,
+        kind,
+        title: (kind === 'tv' ? r.name : r.title) ?? r.title ?? r.name ?? 'Untitled',
+        year: date ? Number(date.slice(0, 4)) || undefined : undefined,
+        rating: r.vote_average || undefined,
+        poster: r.poster_path ? `${IMAGE_BASE}${r.poster_path}` : undefined,
+        backdrop: r.backdrop_path ? `https://image.tmdb.org/t/p/w1280${r.backdrop_path}` : undefined,
+        overview: r.overview || undefined,
+        genreIds: r.genre_ids ?? []
+      }
+    })
+    return { items, configured: true }
+  } catch (error) {
+    console.error('[tmdb] discover failed', (error as Error).message)
+    return { items: [], configured: true }
   }
 }

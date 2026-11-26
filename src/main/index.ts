@@ -159,7 +159,6 @@ if (!gotLock) {
     setUserDataDir(app.getPath('userData'))
     applyProxy()
     settings.onChange(applyProxy)
-    engineManager.use(settings.get().engine)
 
     await getStreamServer().start()
     registerIpc(() => mainWindow)

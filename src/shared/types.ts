@@ -82,6 +82,8 @@ export interface SearchFilters {
   maxAgeDays: number
   sort: SortKey
   hideDead: boolean
+  /** Provider-native category id used by Browse mode (e.g. a TPB cat id). */
+  category?: string
 }
 
 export const DEFAULT_FILTERS: SearchFilters = {
@@ -93,7 +95,8 @@ export const DEFAULT_FILTERS: SearchFilters = {
   maxSizeGb: 0,
   maxAgeDays: 0,
   sort: 'seeders',
-  hideDead: false
+  hideDead: false,
+  category: ''
 }
 
 export interface ProviderHealth {
@@ -142,6 +145,22 @@ export interface SearchSuggestion {
   year?: number
   kind: 'movie' | 'tv'
   rating?: number
+}
+
+export type DiscoverKind = 'movie' | 'tv'
+export type DiscoverSort = 'popular' | 'rating' | 'newest'
+
+/** A TMDB title shown in Discover, with everything needed to search torrents. */
+export interface DiscoverItem {
+  tmdbId: number
+  kind: DiscoverKind
+  title: string
+  year?: number
+  rating?: number
+  poster?: string
+  backdrop?: string
+  overview?: string
+  genreIds: number[]
 }
 
 /** An audio stream inside a media file, as probed by ffmpeg. */
@@ -256,17 +275,9 @@ export interface ProxyConfig {
   password?: string
 }
 
-export interface QbittorrentConfig {
-  url: string
-  username?: string
-  password?: string
-}
-
 export interface AppSettings {
   proxy: ProxyConfig
   providers: Record<string, boolean>
-  engine: 'builtin' | 'qbittorrent'
-  qbittorrent: QbittorrentConfig
   trackers: string[]
   tmdbApiKey?: string
   downloadDir?: string
@@ -282,8 +293,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // 1337x serves a Cloudflare challenge to non-browser clients; leave it off
   // unless the user has a proxy that gets through.
   providers: { '1337x': false },
-  engine: 'builtin',
-  qbittorrent: { url: 'http://127.0.0.1:8080' },
   trackers: [
     // WSS trackers survive corporate networks that block UDP and plain HTTP.
     'wss://tracker.openwebtorrent.com',

@@ -260,45 +260,6 @@ export function SettingsPanel() {
           </p>
         </Section>
 
-        <Section title="qBittorrent">
-          <p className="mb-1.5 text-[11px] text-mist-400">
-            qBittorrent only takes over when you switch the engine in the top bar — the
-            built-in engine stays the default.
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              value={draft.qbittorrent.url}
-              onChange={(event) =>
-                patch({ qbittorrent: { ...draft.qbittorrent, url: event.target.value } })
-              }
-              placeholder="http://127.0.0.1:8080"
-              aria-label="qBittorrent Web UI URL"
-              className="w-56 rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs"
-            />
-            <input
-              value={draft.qbittorrent.username ?? ''}
-              onChange={(event) =>
-                patch({ qbittorrent: { ...draft.qbittorrent, username: event.target.value } })
-              }
-              placeholder="username"
-              aria-label="qBittorrent username"
-              autoComplete="off"
-              className="w-32 rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs"
-            />
-            <input
-              value={draft.qbittorrent.password ?? ''}
-              type="password"
-              onChange={(event) =>
-                patch({ qbittorrent: { ...draft.qbittorrent, password: event.target.value } })
-              }
-              placeholder="password"
-              aria-label="qBittorrent password"
-              autoComplete="new-password"
-              className="w-32 rounded-md border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs"
-            />
-          </div>
-        </Section>
-
         <Section title="Downloads">
           <label className="mb-1 block text-xs text-mist-200">
             Where finished files are saved
@@ -330,8 +291,8 @@ export function SettingsPanel() {
             )}
           </div>
           <p className="mt-1 text-[11px] text-mist-400">
-            Defaults to your system Downloads folder. Applies to the built-in engine and to
-            qBittorrent as its save path.
+            Defaults to your system Downloads folder. A change applies to the next download
+            without a restart.
           </p>
         </Section>
 

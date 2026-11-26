@@ -6,19 +6,12 @@ import { api } from '../lib/api.ts'
 import { useUiStore } from '../lib/store.ts'
 
 interface TopBarProps {
-  engine: 'builtin' | 'qbittorrent'
-  onEngineChange: (engine: 'builtin' | 'qbittorrent') => void
-  /** True while a settings write is in flight — disables the engine toggle. */
-  engineDisabled?: boolean
   onOpenSettings: () => void
   onOpenLibrary: () => void
   onOpenDiagnostics: () => void
 }
 
 export function TopBar({
-  engine,
-  onEngineChange,
-  engineDisabled = false,
   onOpenSettings,
   onOpenLibrary,
   onOpenDiagnostics
@@ -220,35 +213,6 @@ export function TopBar({
 
       <div className="flex shrink-0 items-center gap-1.5">
         <DownloadsPill summary={summary} onOpenLibrary={onOpenLibrary} />
-
-        <div
-          role="group"
-          aria-label="Download engine"
-          title="Switch between the built-in engine and qBittorrent"
-          className="oc-segmented flex overflow-hidden rounded-lg border border-ink-600"
-        >
-          {(
-            [
-              { id: 'builtin', label: 'Built-in' },
-              { id: 'qbittorrent', label: 'qBittorrent' }
-            ] as const
-          ).map((option) => (
-            <button
-              key={option.id}
-              onClick={() => onEngineChange(option.id)}
-              aria-pressed={engine === option.id}
-              disabled={engineDisabled}
-              title={option.id === 'qbittorrent' ? 'Download via qBittorrent (no instant streaming)' : 'Built-in engine (instant streaming)'}
-              className={`px-2.5 py-1.5 text-xs font-medium transition-colors disabled:cursor-wait disabled:opacity-60 ${
-                engine === option.id
-                  ? 'bg-accent-600 text-white'
-                  : 'bg-ink-800 text-mist-400 hover:text-mist-100'
-              }`}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
 
         <IconButton label="Diagnostics" onClick={onOpenDiagnostics}>
           <Activity size={16} />

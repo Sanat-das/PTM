@@ -358,8 +358,13 @@ export function Player({ sessionId, fileIndex, resumePositionSec, title, theme, 
         if (Hls.isSupported()) {
           hls = new Hls({
             enableWorker: true,
-            lowLatencyMode: true,
             backBufferLength: 60,
+            // The source is local (disk or a fast byte-range server), so a
+            // small look-ahead starts playback sooner; a large preload only
+            // delays the first frame.
+            maxBufferLength: 12,
+            maxBufferSize: 24 * 1000 * 1000,
+            maxMaxBufferLength: 30,
             manifestLoadingMaxRetry: 6,
             levelLoadingMaxRetry: 6,
             fragLoadingMaxRetry: 8

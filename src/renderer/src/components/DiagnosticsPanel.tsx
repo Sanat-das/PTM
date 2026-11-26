@@ -79,8 +79,8 @@ export function DiagnosticsPanel() {
         {diagnostics.data && (
           <p className="pt-3 text-[11px] leading-relaxed text-mist-400">
             Indexes marked red are blocked or unreachable from this machine. If you run a local VPN
-            or proxy, enable it in Settings and re-run. UDP trackers and DHT cannot be tunnelled —
-            use the qBittorrent engine if your setup relies on them.
+            or proxy, enable it in Settings and re-run. UDP trackers and DHT cannot be tunnelled;
+            a non-loopback HTTP/SOCKS proxy is required for those swarms.
           </p>
         )}
       </div>

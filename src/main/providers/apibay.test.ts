@@ -80,6 +80,20 @@ test('apibay narrows the query by theme category', async () => {
   assert.match(lastUrl, /cat=200/)
 })
 
+test('apibay uses an explicit browse category over the theme hint', async () => {
+  fixture = []
+  await apibayProvider.search({ ...baseCtx, query: '', category: '209', theme: 'movies' })
+  assert.match(lastUrl, /cat=209/)
+})
+
+test('apibay uses a wildcard query when browsing with no search text', async () => {
+  fixture = []
+  await apibayProvider.search({ ...baseCtx, query: '', category: '200' })
+  const url = new URL(lastUrl)
+  assert.equal(url.searchParams.get('q'), '*')
+  assert.equal(url.searchParams.get('cat'), '200')
+})
+
 test('apibay returns [] when the API answers a non-array payload', async () => {
   fixture = { error: 'something broke' }
   const results = await apibayProvider.search({ ...baseCtx })

@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import {
   IPC,
   type AddTorrentRequest,
+  type DiscoverRequest,
   type PtmApi,
   type SearchRequest,
   type StreamRequest,
@@ -24,6 +25,7 @@ import type {
 const api: PtmApi = {
   search: (request: SearchRequest) => ipcRenderer.invoke(IPC.search, request),
   searchSuggest: (query: string) => ipcRenderer.invoke(IPC.searchSuggest, query),
+  discover: (request: DiscoverRequest) => ipcRenderer.invoke(IPC.discover, request),
   providersHealth: () => ipcRenderer.invoke(IPC.providersHealth),
   youtubeTrailers: (title: string, year?: number) =>
     ipcRenderer.invoke(IPC.youtubeTrailers, title, year),

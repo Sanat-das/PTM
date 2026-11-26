@@ -35,7 +35,12 @@ export async function searchAll(
   const started = Date.now()
   // EZTV only works with an IMDb id, so it is held out of the fan-out and
   // queried in a second pass against TV results that carry one.
-  const active = providers.filter(isProviderEnabled).filter((provider) => provider !== eztvProvider)
+  // 1337x's URL is a search-path lookup, so it cannot answer a query-free
+  // Browse request. The other providers have a native browse/list endpoint.
+  const active = providers
+    .filter(isProviderEnabled)
+    .filter((provider) => provider !== eztvProvider)
+    .filter((provider) => query.trim().length > 0 || provider.id !== '1337x')
   const theme = filters.themes.length === 1 ? filters.themes[0] : undefined
 
   const settled = await Promise.allSettled(
@@ -45,6 +50,7 @@ export async function searchAll(
         proxy: options.proxy,
         trackers: options.trackers,
         theme,
+        category: filters.category
       }
       const results = await provider.search(ctx)
       return { provider, results }

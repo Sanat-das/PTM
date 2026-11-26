@@ -12,6 +12,8 @@ export interface TranscodeOptions {
   preset?: string
   /** 0-based audio stream ordinal to select; defaults to ffmpeg's pick. */
   audioIndex?: number
+  /** Stream-copy into fMP4 HLS instead of re-encoding. Requires H.264/AAC. */
+  remux?: boolean
   onExit?: (code: number | null) => void
   onError?: (error: Error) => void
 }
@@ -42,45 +44,75 @@ export function resolveFfmpeg(): string {
 export function startHlsTranscode(options: TranscodeOptions): TranscodeResult {
   fs.mkdirSync(options.outputDir, { recursive: true })
   const playlistPath = path.join(options.outputDir, 'index.m3u8')
-  const segmentPattern = path.join(options.outputDir, 'seg_%05d.ts')
 
   const args = [
     '-hide_banner',
     '-loglevel',
     'error',
+    '-nostdin',
     '-user_agent',
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0.0.0',
     '-i',
     options.sourceUrl,
     // An explicit audio selection must force explicit mapping — ffmpeg's
     // default pick ignores which track the user asked for.
-    ...(options.audioIndex !== undefined ? ['-map', '0:v:0?', '-map', `0:a:${options.audioIndex}`] : []),
-    '-c:v',
-    'libx264',
-    '-preset',
-    options.preset ?? 'veryfast',
-    '-crf',
-    String(options.crf ?? 23),
-    '-pix_fmt',
-    'yuv420p',
-    '-c:a',
-    'aac',
-    '-b:a',
-    '128k',
-    '-ac',
-    '2',
-    '-f',
-    'hls',
-    '-hls_time',
-    '4',
-    '-hls_list_size',
-    '0',
-    '-hls_flags',
-    'independent_segments+temp_file',
-    '-hls_segment_filename',
-    segmentPattern,
-    playlistPath
+    ...(options.audioIndex !== undefined ? ['-map', '0:v:0?', '-map', `0:a:${options.audioIndex}`] : [])
   ]
+
+  if (options.remux) {
+    // Stream copy: no re-encode, so the first segment is available almost
+    // immediately. fMP4 segments keep H.264/AAC in an MSE-friendly form.
+    args.push(
+      '-c',
+      'copy',
+      '-avoid_negative_ts',
+      'make_zero',
+      '-f',
+      'hls',
+      '-hls_time',
+      '4',
+      '-hls_list_size',
+      '0',
+      '-hls_flags',
+      'temp_file',
+      '-hls_segment_type',
+      'fmp4',
+      // ffmpeg resolves this against the process cwd, not the playlist dir.
+      '-hls_fmp4_init_filename',
+      path.join(options.outputDir, 'init.mp4'),
+      '-hls_segment_filename',
+      path.join(options.outputDir, 'seg_%05d.m4s'),
+      playlistPath
+    )
+  } else {
+    args.push(
+      '-c:v',
+      'libx264',
+      '-preset',
+      options.preset ?? 'veryfast',
+      '-crf',
+      String(options.crf ?? 23),
+      '-pix_fmt',
+      'yuv420p',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '128k',
+      '-ac',
+      '2',
+      '-f',
+      'hls',
+      '-hls_time',
+      '4',
+      '-hls_list_size',
+      '0',
+      '-hls_flags',
+      'independent_segments+temp_file',
+      '-hls_segment_filename',
+      path.join(options.outputDir, 'seg_%05d.ts'),
+      playlistPath
+    )
+  }
 
   const child = spawn(resolveFfmpeg(), args, {
     windowsHide: true,

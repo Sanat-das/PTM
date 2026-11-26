@@ -1,6 +1,36 @@
 # Changelog
 
-All notable changes to PTM are documented here. Dates are ISO (YYYY-MM-DD).
+All notable changes to Play Torren Media (PTM) are documented here. Dates are ISO (YYYY-MM-DD).
+
+## [0.3.0] - 2026-11-23
+
+### Added
+- **Browse** view: query-free browsing by category (Movies, WEB Movies, BluRay, TV, HD TV,
+  Anime, Music, Games, Books, Apps), with the existing quality filters applied on top.
+- **Discover** view: TMDB recommendations by kind, genre, year, minimum rating and sort, a
+  "Surprise me" shuffle, and one-click torrent search from each card. Titles load 20 at a
+  time with a **Show more** button.
+
+### Fixed
+- Browse requests to apibay now use the `*` wildcard — an empty query returned no rows.
+- Replaced the empty HD Movies category (`cat=210`) with WEB Movies (`cat=209`).
+- Submitting a search from Browse or Discover now switches to the Search view and clears the
+  category theme Browse injects, so the query runs and its results are shown instead of being
+  ignored or filtered away.
+
+### Changed
+- Movie-genre chips no longer appear under Browse; genre browsing lives in the Discover tab.
+- Playback of non-browser containers now stream-copies H.264/AAC into fMP4 HLS
+  instead of re-encoding with libx264. Only unsupported codecs take the
+  transcode fallback, so large files start much sooner.
+- Open-ended HTTP byte ranges are capped to 8 MB, so the browser no longer
+  holds a whole multi-GB file stream open to fill its buffer.
+- hls.js preloads less before the first frame.
+
+### Removed
+- The qBittorrent engine, its settings/UI switch and the "wait for the whole
+  torrent before playback" path. The built-in WebTorrent engine is now the
+  only download engine.
 
 ## [0.2.2] - 2026-11-18
 
