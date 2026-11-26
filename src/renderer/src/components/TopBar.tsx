@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Activity, Film, Library, Pause, Search, Settings as SettingsIcon, Tv } from 'lucide-react'
 import { formatBytes } from '../../../shared/filters.ts'
 import type { DownloadsSummary, SearchSuggestion } from '../../../shared/types.ts'
+import { APP_NAME, APP_TAGLINE } from '../../../shared/version.ts'
 import { api } from '../lib/api.ts'
 import { useUiStore } from '../lib/store.ts'
 
@@ -89,9 +90,12 @@ export function TopBar({
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-4 border-b border-ink-700 bg-ink-850 px-4">
-      <div className="flex items-center gap-2 select-none">
-        <span className="text-lg font-bold tracking-tight text-mist-100">PTM</span>
-        <span className="h-1.5 w-1.5 rounded-full bg-accent-500" />
+      <div className="flex select-none flex-col leading-tight">
+        <div className="flex items-center gap-1.5">
+          <span className="text-sm font-bold tracking-tight text-mist-100">{APP_NAME}</span>
+          <span className="h-1.5 w-1.5 rounded-full bg-accent-500" />
+        </div>
+        <span className="text-[10px] text-mist-400">{APP_TAGLINE}</span>
       </div>
 
       <form

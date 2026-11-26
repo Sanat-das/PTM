@@ -8,6 +8,7 @@ import { setUserDataDir } from './app-paths.ts'
 import { settings } from './settings.ts'
 import { library } from './library.ts'
 import { downloads } from './downloads.ts'
+import { APP_NAME } from '../shared/version.ts'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -101,7 +102,7 @@ function createWindow(): void {
     minHeight: 640,
     show: false,
     backgroundColor: '#0a0c12',
-    title: 'PTM',
+    title: APP_NAME,
     webPreferences: {
       preload: resolvePreload(),
       sandbox: false,

@@ -1,4 +1,4 @@
-# PTM — Play Torren Media
+# PTM — Play Torrent Media
 
 Search public torrent indexes, filter by theme and quality, watch YouTube trailers, and play in
 the same app.

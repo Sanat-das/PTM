@@ -1,6 +1,6 @@
 appId: com.ptm.app
-productName: PTM
-copyright: PTM
+productName: Play Torrent Media
+copyright: Play Torrent Media contributors
 
 directories:
   output: release

@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { X, Loader2, AlertTriangle, Octagon, Volume2, Check } from 'lucide-react'
 import { api } from '../lib/api.ts'
 import type { AudioTrackInfo } from '../../../shared/types.ts'
+import { APP_NAME } from '../../../shared/version.ts'
 
 const LANGUAGE_LABELS: Record<string, string> = {
   eng: 'English',
@@ -187,10 +188,10 @@ export function Player({ sessionId, fileIndex, resumePositionSec, title, theme, 
   const [audioMenuOpen, setAudioMenuOpen] = useState(false)
   const [stopArmed, setStopArmed] = useState(false)
 
-  // Keep the window title meaningful instead of a bare "PTM".
+  // Keep the window title meaningful instead of just the app name.
   useEffect(() => {
     const previous = document.title
-    document.title = title ? `${title} — PTM` : 'PTM'
+    document.title = title ? `${title} — ${APP_NAME}` : APP_NAME
     return () => {
       document.title = previous
     }

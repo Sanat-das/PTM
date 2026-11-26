@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Play Torren Media (PTM) are documented here. Dates are ISO (YYYY-MM-DD).
+All notable changes to Play Torrent Media (PTM) are documented here. Dates are ISO (YYYY-MM-DD).
 
 ## [0.3.0] - 2026-11-23
 
